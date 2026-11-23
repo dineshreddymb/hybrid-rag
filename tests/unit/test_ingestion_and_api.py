@@ -86,3 +86,37 @@ def test_ask_and_search_accept_use_cache_flag(client, monkeypatch):
                         lambda *a: seen.setdefault("ask", a) and {"answer": "ok"})
     r = c.post("/ask", json={"question": "q", "use_cache": False})
     assert r.status_code == 200 and seen["ask"][-1] is False
+
+
+def test_embed_and_store_marks_duplicate_when_skipped(stored):
+    state = {"source": "a.md", "content": "x", "file_hash": "H", "skipped": True}
+    out = pipeline.embed_and_store(state)
+    assert out["result"]["status"] == "unchanged"
+    assert out["result"]["is_duplicate"] is True
+    assert out["result"]["chunks_new"] == 0
+
+
+def test_conflict_actions_endpoint(client, monkeypatch):
+    c, _ = client
+    # Mock pipeline functions
+    monkeypatch.setattr("backend_app.ingestion.pipeline.remove_document", lambda src: src == "test.md")
+    monkeypatch.setattr("backend_app.ingestion.pipeline.force_ingest_document", lambda src: {"job_id": "j_force", "source": src})
+    monkeypatch.setattr("backend_app.ingestion.pipeline.copy_and_rename_document",
+                        lambda src, new_name=None: {"job_id": "j_copy", "results": [{"source": new_name or f"{src}_copy"}]})
+
+    # Action 1: Remove
+    r_rem = c.post("/documents/conflict/action", json={"source": "test.md", "action": "remove"})
+    assert r_rem.status_code == 200
+    assert r_rem.json() == {"status": "removed", "source": "test.md"}
+
+    # Action 2: Force
+    r_force = c.post("/documents/conflict/action", json={"source": "test.md", "action": "force"})
+    assert r_force.status_code == 200
+    assert r_force.json()["status"] == "force_ingested"
+
+    # Action 3: Copy
+    r_copy = c.post("/documents/conflict/action", json={"source": "test.md", "action": "copy"})
+    assert r_copy.status_code == 200
+    assert r_copy.json()["status"] == "copied"
+    assert "copy" in r_copy.json()["new_source"]
+

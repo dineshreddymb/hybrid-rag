@@ -288,11 +288,16 @@ def sync_supabase_bucket(
     for item in all_items:
         src = item["source"]
         r = job_map.get(src) or {}
+        raw_status = r.get("status", "ingested")
+        is_dup = bool(r.get("is_duplicate") or raw_status == "unchanged")
+        status_label = "Already Existing" if is_dup else raw_status
         file_metrics.append({
             "source": src,
             "folder": item.get("folder", "root"),
             "size_bytes": item.get("size", 0),
-            "status": r.get("status", "ingested"),
+            "status": status_label,
+            "is_duplicate": is_dup,
+            "doc_id": r.get("doc_id"),
             "chunks_new": r.get("chunks_new", 0),
             "chunks_reused": r.get("chunks_reused", 0),
         })
@@ -456,11 +461,16 @@ def sync_remote_zip(
     for item in all_items:
         src = item["source"]
         r = job_map.get(src) or {}
+        raw_status = r.get("status", "ingested")
+        is_dup = bool(r.get("is_duplicate") or raw_status == "unchanged")
+        status_label = "Already Existing" if is_dup else raw_status
         file_metrics.append({
             "source": src,
             "folder": item.get("folder", "root"),
             "size_bytes": item.get("size", 0),
-            "status": r.get("status", "ingested"),
+            "status": status_label,
+            "is_duplicate": is_dup,
+            "doc_id": r.get("doc_id"),
             "chunks_new": r.get("chunks_new", 0),
             "chunks_reused": r.get("chunks_reused", 0),
         })

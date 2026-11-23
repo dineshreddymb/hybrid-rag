@@ -91,7 +91,15 @@ def dedupe(state: IngestState) -> IngestState:
 def embed_and_store(state: IngestState) -> IngestState:
     s = get_settings()
     if state.get("skipped"):
-        return {"result": {"source": state["source"], "status": "unchanged", "chunks_new": 0}}
+        existing = repo.get_document_by_source(state["source"]) or {}
+        return {"result": {
+            "source": state["source"],
+            "status": "unchanged",
+            "is_duplicate": True,
+            "doc_id": existing.get("doc_id"),
+            "chunks_new": 0,
+            "chunks_reused": existing.get("chunk_count", 0),
+        }}
 
     to_embed = state["to_embed"]
     vectors = get_embedder().embed_documents([c["index_text"] for c in to_embed]) if to_embed else []
@@ -246,3 +254,39 @@ def delete_document(doc_id: str, rebuild: bool = True) -> bool:
         cache.bump_index_version()
     log.info("document_deleted", doc_id=doc_id, source=doc["source"])
     return True
+
+
+def remove_document(source_or_id: str) -> bool:
+    """Action 1: Removes an existing/duplicate document from the pipeline & vector store."""
+    doc = repo.get_document_raw(source_or_id) or repo.get_document_by_source(source_or_id)
+    if not doc:
+        return False
+    return delete_document(doc["doc_id"])
+
+
+def force_ingest_document(source_or_id: str) -> dict:
+    """Action 2: Forces full re-ingestion and re-embedding of an existing document."""
+    doc = repo.get_document_raw(source_or_id) or repo.get_document_by_source(source_or_id)
+    if not doc:
+        raise KeyError(f"Document not found: {source_or_id}")
+    return reingest(doc["doc_id"])
+
+
+def copy_and_rename_document(source_or_id: str, new_name: str | None = None) -> dict:
+    """Action 3: Copies an existing document under a new name and ingests as a separate document."""
+    doc = repo.get_document_raw(source_or_id) or repo.get_document_by_source(source_or_id)
+    if not doc:
+        raise KeyError(f"Document not found: {source_or_id}")
+    old_source = doc["source"]
+    content = doc.get("content", "")
+    if not new_name:
+        p = Path(old_source)
+        stem = p.stem
+        suffix = p.suffix or ".md"
+        parent = p.parent.as_posix()
+        new_stem = f"{stem}_copy"
+        new_source = f"{parent}/{new_stem}{suffix}" if parent and parent != "." else f"{new_stem}{suffix}"
+    else:
+        new_source = new_name
+    return ingest_items([{"source": new_source, "content": content, "origin": "copy_rename", "force": True}], trigger="copy_rename")
+

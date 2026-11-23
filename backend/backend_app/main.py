@@ -177,6 +177,12 @@ class TextDocument(BaseModel):
     content: str = Field(..., min_length=1, max_length=500_000)
 
 
+class ConflictActionRequest(BaseModel):
+    source: str
+    action: Literal["remove", "force", "copy"]
+    new_name: str | None = None
+
+
 class Feedback(BaseModel):
     trace_id: str
     value: Literal[0, 1]          # 1 = thumbs up, 0 = thumbs down
@@ -315,6 +321,36 @@ def reingest_document(doc_id: str):
         return pipeline.reingest(doc_id)
     except KeyError:
         raise HTTPException(404, "document not found")
+
+
+@app.post("/documents/conflict/action")
+def resolve_document_conflict(body: ConflictActionRequest):
+    """Resolves conflicts for existing/re-uploaded documents:
+    - remove: removes file from pipeline & vector store
+    - force: forces complete re-ingestion & re-embedding
+    - copy: copies under new filename and ingests
+    """
+    if body.action == "remove":
+        ok = pipeline.remove_document(body.source)
+        if not ok:
+            raise HTTPException(404, f"Document not found: {body.source}")
+        return {"status": "removed", "source": body.source}
+    elif body.action == "force":
+        try:
+            job = pipeline.force_ingest_document(body.source)
+            return {"status": "force_ingested", "source": body.source, "job": job}
+        except KeyError:
+            raise HTTPException(404, f"Document not found: {body.source}")
+    elif body.action == "copy":
+        try:
+            job = pipeline.copy_and_rename_document(body.source, new_name=body.new_name)
+            new_source = (job.get("results") or [{}])[0].get("source") or body.new_name or f"{body.source}_copy"
+            return {"status": "copied", "source": body.source, "new_source": new_source, "job": job}
+        except KeyError:
+            raise HTTPException(404, f"Document not found: {body.source}")
+    else:
+        raise HTTPException(400, f"Unsupported conflict action: {body.action}")
+
 
 
 @app.get("/ingestion-jobs")

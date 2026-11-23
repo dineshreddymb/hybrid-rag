@@ -189,6 +189,15 @@ class ApiClient:
     def sync_status(self) -> dict:
         return self.get("/documents/sync-status") or {}
 
+    def resolve_conflict(self, source: str, action: str, new_name: str | None = None) -> dict:
+        return self.request(
+            "POST",
+            "/documents/conflict/action",
+            json={"source": source, "action": action, "new_name": new_name},
+            timeout=ASK_TIMEOUT,
+        )
+
+
     # --- logs & eval --------------------------------------------------------------------------
     def logs(self, service: str | None = None, level: str | None = None,
              request_id: str | None = None, q: str | None = None, limit: int = 200) -> list[dict]:

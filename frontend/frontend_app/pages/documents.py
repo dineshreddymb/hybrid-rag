@@ -43,7 +43,7 @@ FILE_TELEMETRY_COLUMNS = [
     {"name": "Size (B)", "id": "size_bytes", "type": "numeric"},
     {"name": "Chunks (New)", "id": "chunks_new", "type": "numeric"},
     {"name": "Chunks (Reused)", "id": "chunks_reused", "type": "numeric"},
-    {"name": "Status", "id": "status"},
+    {"name": "Status / Duplicate Info", "id": "status"},
 ]
 
 
@@ -100,13 +100,22 @@ def job_summary(job: dict) -> list:
     """One line per file: 'notes.md: ingested — 4 new, 2 reused, 0 removed'."""
     lines = []
     for r in job.get("results") or []:
-        bits = [f"{r.get(k)} {label}" for k, label in
-                (("chunks_new", "new"), ("chunks_reused", "reused"), ("chunks_removed", "removed"))
-                if r.get(k) is not None]
-        if not bits and r.get("chunks") is not None:
-            bits = [f"{r['chunks']} chunks"]
-        lines.append(html.Li(f"{r.get('source', '?')}: {r.get('status', '?')}"
-                             + (f" ({', '.join(bits)})" if bits else "")))
+        st = r.get("status", "?")
+        if st in ("unchanged", "already_existing") or r.get("is_duplicate"):
+            reused = r.get("chunks_reused", 0)
+            lines.append(html.Li([
+                html.Span("⚠️ Already Existing: ", className="fw-semibold text-warning"),
+                html.Code(r.get("source", "?")),
+                f" (skipped duplicate re-upload — 0 new, {reused} chunks preserved)",
+            ]))
+        else:
+            bits = [f"{r.get(k)} {label}" for k, label in
+                    (("chunks_new", "new"), ("chunks_reused", "reused"), ("chunks_removed", "removed"))
+                    if r.get(k) is not None]
+            if not bits and r.get("chunks") is not None:
+                bits = [f"{r['chunks']} chunks"]
+            lines.append(html.Li(f"{r.get('source', '?')}: {st}"
+                                 + (f" ({', '.join(bits)})" if bits else "")))
     for e in job.get("errors") or []:
         lines.append(html.Li(str(e), className="text-danger"))
     return lines
@@ -170,7 +179,26 @@ def layout(**_kwargs):
                 dbc.Col([
                     html.H6([html.I(className="bi bi-file-earmark-code me-1"), "Deep Ingestion Log (Paths, Time & Space)"],
                             className="fw-semibold text-secondary small"),
-                    data_table("sync-files-table", FILE_TELEMETRY_COLUMNS, page_size=5),
+                    data_table("sync-files-table", FILE_TELEMETRY_COLUMNS, page_size=5, row_selectable="single"),
+                    html.Div([
+                        html.Div([
+                            html.Span("Existing File Action: ", className="fw-semibold me-2 small text-muted"),
+                            html.Span(id="conflict-selected-source", children="None selected (click a row in table)",
+                                      className="fw-semibold small text-primary"),
+                        ], className="d-flex align-items-center mb-2"),
+                        html.Div([
+                            dbc.Button([html.I(className="bi bi-trash-fill me-1"), "1. Remove from Pipeline"],
+                                       id="btn-conflict-remove", color="danger", size="sm", outline=True,
+                                       class_name="me-2 mb-1", disabled=True, n_clicks=0),
+                            dbc.Button([html.I(className="bi bi-lightning-charge-fill me-1"), "2. Force Full Ingestion"],
+                                       id="btn-conflict-force", color="warning", size="sm", outline=True,
+                                       class_name="me-2 mb-1", disabled=True, n_clicks=0),
+                            dbc.Button([html.I(className="bi bi-copy me-1"), "3. Copy File (Name Change)"],
+                                       id="btn-conflict-copy", color="info", size="sm", outline=True,
+                                       class_name="mb-1", disabled=True, n_clicks=0),
+                        ], className="d-flex flex-wrap"),
+                        dcc.Loading(html.Div(id="conflict-alert", className="mt-2"), type="dot"),
+                    ], className="p-2 border rounded bg-light mt-2"),
                 ], lg=7),
             ]),
         ]),
@@ -393,6 +421,87 @@ def docs_confirm_delete(n, title):
     return True, (f"Delete '{title}'? This removes its chunks from MongoDB, Qdrant and BM25. "
                   "Uploaded files are removed from disk too; files you placed in data/docs "
                   "yourself come back on the next scan unless you delete them there.")
+
+
+@dash.callback(
+    Output("conflict-alert", "children"),
+    Output("conflict-selected-source", "children"),
+    Output("btn-conflict-remove", "disabled"),
+    Output("btn-conflict-force", "disabled"),
+    Output("btn-conflict-copy", "disabled"),
+    Output("docs-refresh", "n_clicks"),
+    Input("sync-files-table", "selected_rows"),
+    Input("docs-selected", "data"),
+    Input("btn-conflict-remove", "n_clicks"),
+    Input("btn-conflict-force", "n_clicks"),
+    Input("btn-conflict-copy", "n_clicks"),
+    State("sync-files-table", "data"),
+    State("docs-table", "data"),
+    State("conflict-selected-source", "children"),
+    State("docs-refresh", "n_clicks"),
+)
+def handle_conflict_actions(
+    sync_sel_rows,
+    main_sel_doc,
+    n_remove,
+    n_force,
+    n_copy,
+    sync_data,
+    docs_data,
+    curr_source_label,
+    refresh_clicks,
+):
+    trig = ctx.triggered_id
+    client = get_client()
+    refresh_n = (refresh_clicks or 0)
+
+    target_source = None
+    if sync_sel_rows and sync_data and len(sync_sel_rows) > 0:
+        idx = sync_sel_rows[0]
+        if 0 <= idx < len(sync_data):
+            target_source = sync_data[idx].get("source")
+    elif main_sel_doc and docs_data:
+        for d in docs_data:
+            if d.get("id") == main_sel_doc:
+                target_source = d.get("source")
+                break
+
+    source_label = target_source or curr_source_label
+    if not source_label or "None selected" in str(source_label):
+        source_label = target_source or "None selected (click a row in table)"
+
+    has_target = bool(target_source and "None selected" not in str(target_source))
+    btn_disabled = not has_target
+    alert = no_update
+
+    if trig == "btn-conflict-remove" and has_target:
+        try:
+            client.resolve_conflict(target_source, "remove")
+            alert = dbc.Alert(f"Successfully removed '{target_source}' from pipeline.",
+                              color="danger", dismissable=True, duration=6000)
+            refresh_n += 1
+        except Exception as exc:  # noqa: BLE001
+            alert = dbc.Alert(f"Failed to remove: {exc}", color="danger", dismissable=True)
+    elif trig == "btn-conflict-force" and has_target:
+        try:
+            client.resolve_conflict(target_source, "force")
+            alert = dbc.Alert(f"Force-ingested '{target_source}' (all chunks & embeddings re-created).",
+                              color="warning", dismissable=True, duration=6000)
+            refresh_n += 1
+        except Exception as exc:  # noqa: BLE001
+            alert = dbc.Alert(f"Failed to force-ingest: {exc}", color="danger", dismissable=True)
+    elif trig == "btn-conflict-copy" and has_target:
+        try:
+            res = client.resolve_conflict(target_source, "copy")
+            new_name = res.get("new_source", f"{target_source}_copy")
+            alert = dbc.Alert(f"Created copy '{new_name}' and ingested into pipeline.",
+                              color="info", dismissable=True, duration=6000)
+            refresh_n += 1
+        except Exception as exc:  # noqa: BLE001
+            alert = dbc.Alert(f"Failed to copy: {exc}", color="danger", dismissable=True)
+
+    return alert, source_label, btn_disabled, btn_disabled, btn_disabled, refresh_n
+
 
 
 dash.register_page(__name__, path="/documents", name="Documents",
