@@ -9,7 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    gcc \
+    libc6-dev \
  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY fake_uname.c ./fake_uname.c
+RUN gcc -shared -fPIC -o /opt/libfake_uname.so fake_uname.c -ldl
 
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -49,6 +55,9 @@ RUN ln -s /qdrant/qdrant /usr/local/bin/qdrant
 
 # Copy Python virtual environment from builder stage
 COPY --from=builder /opt/venv /opt/venv
+
+# Copy fake_uname interceptor to resolve MongoDB 8 kernel compatibility check on cloud hosts
+COPY --from=builder /opt/libfake_uname.so /usr/local/lib/libfake_uname.so
 
 ARG GIT_COMMIT_SHA=dev
 ARG BUILD_DATE=unknown
