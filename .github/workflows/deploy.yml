@@ -105,14 +105,24 @@ jobs:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || inputs.deploy_to_railway == true
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to Railway
+      - name: Trigger Railway Deployment
         env:
+          RAILWAY_DEPLOY_WEBHOOK: ${{ secrets.RAILWAY_DEPLOY_WEBHOOK }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          if [ -z "$RAILWAY_TOKEN" ]; then
-            echo "RAILWAY_TOKEN secret not configured; skipping automatic deployment trigger."
-            echo "To enable, add RAILWAY_TOKEN to your GitHub repository secrets."
-          else
-            echo "Deploying latest unified image to Railway services..."
+          if [ -n "$RAILWAY_DEPLOY_WEBHOOK" ]; then
+            echo "Triggering Railway deployment via Deploy Webhook..."
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$RAILWAY_DEPLOY_WEBHOOK")
+            echo "Railway Deploy Webhook response HTTP status: $HTTP_STATUS"
+            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "Railway deployment triggered successfully via webhook!"
+            else
+              echo "Warning: Webhook returned HTTP status $HTTP_STATUS, check Railway webhook configuration."
+            fi
+          elif [ -n "$RAILWAY_TOKEN" ]; then
+            echo "Deploying latest unified image to Railway via CLI..."
             npx @railway/cli up --detach || echo "Railway CLI deployment triggered"
+          else
+            echo "No RAILWAY_DEPLOY_WEBHOOK or RAILWAY_TOKEN configured in GitHub Secrets."
+            echo "To enable instant automatic deployment, add RAILWAY_DEPLOY_WEBHOOK to your repo secrets."
           fi
