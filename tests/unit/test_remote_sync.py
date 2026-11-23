@@ -175,3 +175,41 @@ def test_sync_supabase_bucket_discovery():
         assert "compliance/audit.md" in sources  # from zip
         assert "engineering/api.md" in sources   # from zip
 
+
+def test_sync_supabase_bucket_rls_fallback():
+    """Simulates Supabase returning [] due to Storage RLS, ensuring automatic fallback to public docs.zip."""
+    sample_zip = _create_sample_zip_bytes()
+
+    mock_head = {
+        "ok": True,
+        "etag": "etag-rls-fallback",
+        "status_code": 200,
+        "content_length": len(sample_zip),
+    }
+
+    with patch("backend_app.ingestion.remote_sync.list_supabase_bucket_objects", return_value=[]), \
+         patch("backend_app.ingestion.remote_sync.check_remote_head", return_value=mock_head), \
+         patch("backend_app.ingestion.remote_sync.download_remote_zip", return_value=sample_zip), \
+         patch("backend_app.ingestion.pipeline.ingest_items") as mock_ingest:
+        mock_ingest.return_value = {
+            "job_id": "job_fallback_sync",
+            "results": [{"source": "compliance/audit.md", "status": "ingested", "chunks_new": 2}],
+        }
+
+        res = remote_sync.sync_supabase_bucket(
+            supabase_url="https://mock.supabase.co",
+            bucket="docs",
+            anon_key="fake-anon-key",
+            force=True,
+        )
+
+        assert res["status"] == "synced"
+        assert "docs.zip" in res["synced_objects"]
+        assert len(res["folder_metrics"]) == 4  # compliance, engineering, hr, root
+        assert mock_ingest.called
+        items = mock_ingest.call_args[0][0]
+        sources = [i["source"] for i in items]
+        assert "compliance/audit.md" in sources
+        assert "engineering/backend.md" in sources
+
+

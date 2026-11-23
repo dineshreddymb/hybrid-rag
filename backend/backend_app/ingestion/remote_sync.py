@@ -181,13 +181,31 @@ def sync_supabase_bucket(
     t_start = time.perf_counter()
     _sync_state["last_checked_at"] = started_at
 
+    objects = []
     try:
         objects = list_supabase_bucket_objects(supabase_url, bucket, anon_key)
     except Exception as exc:  # noqa: BLE001
         log.warning("supabase_bucket_list_failed", error=str(exc))
-        _sync_state["last_status"] = "error"
-        _sync_state["last_error"] = str(exc)
-        return {"status": "error", "message": f"Failed to list Supabase bucket: {exc}"}
+
+    # Automatic fallback for RLS blocks or empty listing:
+    # If bucket listing returns empty or errors (e.g. Supabase Storage RLS has no SELECT policy),
+    # probe for a direct public docs.zip or configured docs_remote_zip_url.
+    if not objects:
+        fallback_candidates = []
+        s = get_settings()
+        if s.docs_remote_zip_url:
+            candidate_name = s.docs_remote_zip_url.rstrip("/").split("/")[-1] or "docs.zip"
+            fallback_candidates.append((candidate_name, s.docs_remote_zip_url))
+        default_public_zip = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket}/docs.zip"
+        if not any(c[1] == default_public_zip for c in fallback_candidates):
+            fallback_candidates.append(("docs.zip", default_public_zip))
+
+        for cand_name, cand_url in fallback_candidates:
+            head = check_remote_head(cand_url)
+            if head.get("ok"):
+                log.info("supabase_bucket_rls_fallback_detected", name=cand_name, url=cand_url)
+                objects = [{"name": cand_name, "url": cand_url, "metadata": {"eTag": head.get("etag", "")}}]
+                break
 
     all_items: list[dict] = []
     folder_metrics: list[dict] = []
@@ -203,7 +221,7 @@ def sync_supabase_bucket(
         if not force and last_etag and last_etag == etag:
             continue
 
-        public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket}/{name}"
+        public_url = obj.get("url") or f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket}/{name}"
         try:
             raw_bytes = download_remote_zip(public_url)
         except Exception as exc:  # noqa: BLE001
@@ -317,13 +335,21 @@ def sync_remote_zip(
 
     # Mode A: Full Supabase Bucket Auto-Discovery
     if s.supabase_anon_key and s.supabase_url and s.supabase_bucket and not url:
-        return sync_supabase_bucket(
+        res = sync_supabase_bucket(
             supabase_url=s.supabase_url,
             bucket=s.supabase_bucket,
             anon_key=s.supabase_anon_key,
             force=force,
             max_workers=max_workers,
         )
+        if res.get("status") in ("synced", "unchanged"):
+            return res
+        # If bucket auto-discovery returned empty or error, but docs_remote_zip_url is explicitly configured,
+        # fallback to single URL sync (Mode B)
+        if (s.docs_remote_zip_url or "").strip():
+            log.info("supabase_bucket_empty_falling_back_to_url", url=s.docs_remote_zip_url)
+        else:
+            return res
 
     # Mode B: Single URL Sync (Fallback)
     target_url = (url or s.docs_remote_zip_url or "").strip()
