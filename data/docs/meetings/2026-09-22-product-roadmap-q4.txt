@@ -1,0 +1,12 @@
+Product roadmap review Q4 2026, 22 September 2026
+Present: Samuel Okafor (chair), Maren Oduya, Tobias Lindqvist, Priya Raman, Jonas Weber
+
+4.3.0 shipped on 9 September and the staged rollout reached 100 percent on 12 September without an automatic pause.
+
+SK-210 sensor node: adds a leaf wetness sensor and targets 24 months of battery life. Pilot with 10 customers in February 2027, general availability in Q2 2027. It pairs with any G3 on firmware 4.3.0 or later; the SK-200 stays on sale.
+
+Irrigation advisor: the first version will only give suggestions in the app and never change settings by itself, because of the trust impact of PM-003. Beta in Q1 2027.
+
+Second-hand controllers: more tickets about used controllers still linked to the previous owner (for example TCK-10603). An ownership transfer flow will be added to the web portal in Q4 2026.
+
+Not doing: a Vellora-made weather station (third-party stations via Modbus stay supported) and any further G1 support. Pricing and financial topics were discussed separately and are not recorded here.

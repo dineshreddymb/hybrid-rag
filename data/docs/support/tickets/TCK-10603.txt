@@ -1,0 +1,25 @@
+Ticket: TCK-10603
+Opened: 2026-05-20 10:02
+Priority: P3
+Customer: C-1290 (strawberry grower, 0.8 ha, India)
+Controller firmware: 4.0.0
+Assigned: L1 Support Desk (Neha Kulkarni, Pune)
+Status: Solved
+
+Customer message:
+We bought a second-hand G3 controller from another farm. When we try to add it in the app by scanning the code on the side, the app says "This controller could not be added". We tried two different phones.
+
+L1 notes:
+Serial number checked: the controller is registered to a previous owner's account, and its firmware is 4.0.0. Two separate problems:
+1. Scanning the QR code to add a controller only works from firmware 4.1.0. On 4.0.0 the serial number has to be typed in manually.
+2. The controller is still linked to the previous owner. A controller can only belong to one account.
+
+Asked the customer for proof of purchase and contacted the previous owner, who confirmed the sale. Released the controller from the old account on 2026-05-21.
+
+Customer then added the controller manually with the 12-digit serial number and updated to firmware 4.2.1 straight away. The update took about 2 minutes. Did a configuration reset (reset button held 10 seconds) so that the old farm's settings were removed, then the customer's installer set up new Grow Profiles.
+
+Resolution:
+Old firmware (no QR pairing before 4.1.0) and controller still registered to previous owner. Released, added manually, updated.
+Closed: 2026-05-23 15:45
+
+Internal note: second-hand controllers are becoming common. Suggested to Product that the app should show a clear message when a controller belongs to another account, instead of the generic error.

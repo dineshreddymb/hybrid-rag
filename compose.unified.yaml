@@ -1,0 +1,132 @@
+# Multi-container setup using the SAME single image (hybrid-rag-all-in-one)
+# Every service runs in its own isolated container from that 1 image.
+name: hybrid-rag-unified
+
+services:
+  # 1. FRONTEND UI
+  frontend:
+    image: localhost/hybrid-rag-all-in-one:latest
+    container_name: rag-frontend
+    restart: unless-stopped
+    working_dir: /srv/frontend
+    entrypoint: ["/opt/venv/bin/gunicorn", "-b", "0.0.0.0:8050", "--workers", "2", "--threads", "4", "--timeout", "180", "frontend_app.main:server"]
+    env_file: [.env]
+    environment:
+      BACKEND_URL: http://backend:8000
+      LANGFUSE_PUBLIC_URL: https://us.cloud.langfuse.com
+      PYTHONPATH: /srv/frontend
+    ports:
+      - "127.0.0.1:8050:8050"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - frontend-net
+
+  # 2. MCP SERVER
+  mcp-server:
+    image: localhost/hybrid-rag-all-in-one:latest
+    container_name: rag-mcp
+    restart: unless-stopped
+    working_dir: /srv/mcp-server
+    entrypoint: ["/opt/venv/bin/python", "-m", "mcp_server", "--transport", "http"]
+    environment:
+      BACKEND_URL: http://backend:8000
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8100"
+      MCP_PATH: /mcp
+      PYTHONPATH: /srv/mcp-server
+    ports:
+      - "127.0.0.1:8100:8100"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - frontend-net
+
+  # 3. BACKEND API
+  backend:
+    image: localhost/hybrid-rag-all-in-one:latest
+    container_name: rag-backend
+    restart: unless-stopped
+    working_dir: /srv/backend
+    entrypoint: ["/opt/venv/bin/uvicorn", "backend_app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file: [.env]
+    environment:
+      DOCS_DIR: /data/docs
+      MONGO_URI: mongodb://mongodb:27017
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /srv/backend
+    volumes:
+      - ./data/docs:/data/docs:Z
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - mongodb
+      - redis
+      - qdrant
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/config', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - frontend-net
+      - backend-net
+
+  # 4. MONGODB
+  mongodb:
+    image: localhost/hybrid-rag-all-in-one:latest
+    container_name: rag-mongodb
+    restart: unless-stopped
+    entrypoint: ["mongod", "--dbpath", "/data/db", "--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "127.0.0.1:27017:27017"
+    networks:
+      - backend-net
+
+  # 5. REDIS
+  redis:
+    image: localhost/hybrid-rag-all-in-one:latest
+    container_name: rag-redis
+    restart: unless-stopped
+    entrypoint: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no", "--dir", "/data/redis"]
+    volumes:
+      - redis_data:/data/redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - backend-net
+
+  # 6. QDRANT
+  qdrant:
+    image: localhost/hybrid-rag-all-in-one:latest
+    container_name: rag-qdrant
+    restart: unless-stopped
+    working_dir: /qdrant
+    entrypoint: ["/usr/local/bin/qdrant"]
+    environment:
+      QDRANT__SERVICE__HOST: "0.0.0.0"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+      - ./data/qdrant_snapshots:/qdrant/snapshots:Z
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    networks:
+      - backend-net
+
+networks:
+  frontend-net:
+    name: unified-frontend-net
+  backend-net:
+    name: unified-backend-net
+
+volumes:
+  mongo_data:
+  redis_data:
+  qdrant_storage:

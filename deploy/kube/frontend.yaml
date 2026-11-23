@@ -1,0 +1,47 @@
+# Frontend tier as a pod: frontend (Dash UI) + mcp-server. See README.md for the overview.
+# Run: podman kube play --network frontend-net deploy/kube/frontend.yaml
+# It is on frontend-net only: it cannot resolve mongodb, qdrant or redis. It reaches the backend
+# pod through the network alias `backend`.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+data:
+  BACKEND_URL: http://backend:8000
+  LANGFUSE_PUBLIC_URL: http://localhost:3000
+  MCP_TRANSPORT: http
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+  labels:
+    app: hybrid-rag
+    tier: frontend
+spec:
+  restartPolicy: Always
+  containers:
+    - name: frontend
+      image: localhost/hybrid-rag-frontend:latest
+      envFrom:
+        - secretRef:
+            name: frontend-secrets
+        - configMapRef:
+            name: frontend-config
+      ports:
+        - containerPort: 8050
+          hostPort: 8050
+          hostIP: 127.0.0.1
+
+    - name: mcp-server
+      image: localhost/hybrid-rag-mcp:latest
+      envFrom:
+        - secretRef:
+            name: frontend-secrets
+        - configMapRef:
+            name: frontend-config
+      ports:
+        - containerPort: 8100
+          hostPort: 8100
+          hostIP: 127.0.0.1

@@ -1,0 +1,135 @@
+# Backend tier as a pod: backend + mongodb + qdrant + redis. See README.md for the overview.
+# Run: podman kube play --network frontend-net:alias=backend --network backend-net deploy/kube/backend.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kube-mongo-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kube-qdrant-storage
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kube-redis-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  # inside the pod everything is on localhost
+  MONGO_URI: mongodb://localhost:27017
+  QDRANT_URL: http://localhost:6333
+  # ${REDIS_PASSWORD} is filled in by the backend from the secret
+  REDIS_URL: redis://:${REDIS_PASSWORD}@localhost:6379/0
+  DOCS_DIR: /data/docs
+  LANGFUSE_HOST: http://langfuse-web:3000
+  LANGFUSE_PUBLIC_URL: http://localhost:3000
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend
+  labels:
+    app: hybrid-rag
+    tier: backend
+spec:
+  restartPolicy: Always
+  containers:
+    - name: backend
+      image: localhost/hybrid-rag-backend:latest
+      envFrom:
+        - secretRef:
+            name: backend-secrets
+        - configMapRef:
+            name: backend-config
+      ports:
+        - containerPort: 8000
+          hostPort: 8000
+          hostIP: 127.0.0.1
+      volumeMounts:
+        - name: docs
+          mountPath: /data/docs
+      readinessProbe:
+        httpGet:
+          path: /config
+          port: 8000
+        initialDelaySeconds: 10
+        periodSeconds: 10
+
+    - name: mongodb
+      image: docker.io/library/mongo:8
+      ports:
+        - containerPort: 27017
+          hostPort: 27017
+          hostIP: 127.0.0.1
+      volumeMounts:
+        - name: mongo-data
+          mountPath: /data/db
+
+    - name: qdrant
+      image: docker.io/qdrant/qdrant:v1.20.2
+      ports:
+        - containerPort: 6333
+          hostPort: 6333
+          hostIP: 127.0.0.1
+      volumeMounts:
+        - name: qdrant-storage
+          mountPath: /qdrant/storage
+        - name: qdrant-snapshots
+          mountPath: /qdrant/snapshots
+
+    - name: redis
+      image: docker.io/library/redis:7-alpine
+      command: ["sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\" --maxmemory 256mb --maxmemory-policy allkeys-lru --save 300 10 --dir /data"]
+      env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: REDIS_PASSWORD
+      ports:
+        - containerPort: 6379
+          hostPort: 6379
+          hostIP: 127.0.0.1
+      volumeMounts:
+        - name: redis-data
+          mountPath: /data
+
+  volumes:
+    - name: mongo-data
+      persistentVolumeClaim:
+        claimName: kube-mongo-data
+    - name: qdrant-storage
+      persistentVolumeClaim:
+        claimName: kube-qdrant-storage
+    - name: redis-data
+      persistentVolumeClaim:
+        claimName: kube-redis-data
+    - name: qdrant-snapshots
+      hostPath:
+        path: /mnt/c/Users/mbdin/Desktop/hybrid-rag/data/qdrant_snapshots
+        type: Directory
+    - name: docs
+      hostPath:
+        path: /mnt/c/Users/mbdin/Desktop/hybrid-rag/data/docs
+        type: Directory

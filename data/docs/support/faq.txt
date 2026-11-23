@@ -1,0 +1,22 @@
+VELLORA CUSTOMER FAQ (reviewed October 2026)
+
+Q: Does the greenhouse keep running if the internet goes down?
+A: Yes. The G3 controller runs all climate and irrigation logic locally. You lose remote access and phone alerts, but control continues, and the controller uploads its stored data when the connection comes back.
+
+Q: How long do the sensor batteries last?
+A: About 18 months at the default one-minute reporting interval, about 7 months at 15 seconds. Use lithium AA batteries only.
+
+Q: How many valves and sensors can one controller run?
+A: Eight valves out of the box, sixteen with the VX-8 expansion module, and up to 32 SK-200 sensor nodes.
+
+Q: Do I have to pay for the app?
+A: No. The app and basic cloud access are included. Premium Care is a paid support plan with 24/7 phone support for urgent problems; it does not unlock app features.
+
+Q: Why did my controller not get the new firmware yet?
+A: Since firmware 4.3.0 updates are rolled out in stages, so it can take up to three days before an update is offered to your controller.
+
+Q: Why does my CO2 not reach the setpoint?
+A: CO2 dosing stops when the vents open more than 20 percent, because the gas would escape. On warm days with open vents this is expected.
+
+Q: Can I connect Vellora to my farm management software?
+A: Yes, with Cloud API version 2. Version 1 stops working on 31 March 2027.

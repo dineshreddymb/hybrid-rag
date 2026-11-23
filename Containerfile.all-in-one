@@ -1,0 +1,82 @@
+# Multi-stage build for All-in-One container
+# Packages MongoDB, Redis, Qdrant, Backend API, Frontend UI, and MCP Server into 1 image
+
+# Stage 1: Build Python Virtual Environment with all dependencies
+FROM docker.io/library/mongo:8 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH" PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+COPY backend/pyproject.toml ./backend/
+COPY frontend/pyproject.toml ./frontend/
+COPY mcp-server/pyproject.toml ./mcp-server/
+
+# Extract and merge dependencies from all three services
+RUN python3 -c "import tomllib; \
+    d1 = tomllib.load(open('backend/pyproject.toml', 'rb'))['project']['dependencies']; \
+    d2 = tomllib.load(open('frontend/pyproject.toml', 'rb'))['project']['dependencies']; \
+    d3 = tomllib.load(open('mcp-server/pyproject.toml', 'rb'))['project']['dependencies']; \
+    deps = sorted(list(set(d1 + d2 + d3))); \
+    open('requirements.txt', 'w').write('\n'.join(deps))" \
+ && pip install -r requirements.txt
+
+# Stage 2: Runtime Image
+FROM docker.io/library/mongo:8
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-minimal \
+    redis-server \
+    supervisor \
+    curl \
+    procps \
+    ca-certificates \
+    libunwind8 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy Qdrant from official Qdrant image
+COPY --from=docker.io/qdrant/qdrant:v1.20.2 /qdrant /qdrant
+RUN ln -s /qdrant/qdrant /usr/local/bin/qdrant
+
+# Copy Python virtual environment from builder stage
+COPY --from=builder /opt/venv /opt/venv
+
+ARG GIT_COMMIT_SHA=dev
+ARG BUILD_DATE=unknown
+ARG APP_VERSION=0.1.0
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="/srv/backend:/srv/frontend:/srv/mcp-server" \
+    GIT_COMMIT_SHA=${GIT_COMMIT_SHA} \
+    BUILD_DATE=${BUILD_DATE} \
+    APP_VERSION=${APP_VERSION}
+
+# Create all data directories and set permissions
+RUN mkdir -p /data/db /data/redis /qdrant/storage /data/docs /var/log/supervisor /var/run \
+ && chmod -R 777 /data /qdrant /var/log/supervisor /var/run
+
+# Copy application source code
+COPY backend/backend_app /srv/backend/backend_app
+COPY frontend/frontend_app /srv/frontend/frontend_app
+COPY mcp-server/mcp_server /srv/mcp-server/mcp_server
+
+# Copy supervisord config and entrypoint script
+COPY supervisord.conf /etc/supervisor/supervisord.conf
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose ports for UI, Backend, MCP, and Qdrant
+EXPOSE 8050 8000 8100 6333
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

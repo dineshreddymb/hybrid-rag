@@ -1,0 +1,28 @@
+[project]
+name = "hybrid-rag-mcp"
+version = "0.1.0"
+description = "MCP server for the hybrid RAG: thin tools/resources over the FastAPI service"
+requires-python = ">=3.12"
+# Versions pinned to the set pip resolved together (2026-11-17, `pip freeze`).
+# mcp 2.x: FastMCP was renamed to `mcp.server.mcpserver.MCPServer`.
+dependencies = [
+    "mcp==2.3.0",
+    "mcp-types==2.3.0",
+    "httpx==0.28.1",        # our API client (the SDK itself uses httpx2 internally)
+    "httpx2==2.16.2",
+    "starlette==1.10.0",
+    "sse-starlette==3.7.0",
+    "uvicorn==0.54.0",
+    "anyio==4.16.0",
+    "pydantic==2.14.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mcp_server*"]

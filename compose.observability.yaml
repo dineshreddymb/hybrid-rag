@@ -1,0 +1,134 @@
+# Langfuse v4 (self-hosted) — based on the official docker-compose.yml from langfuse/langfuse.
+# Needs .env.langfuse:   python scripts/gen_langfuse_env.py
+# Start alone:           podman-compose -f compose.observability.yaml up -d
+# UI:                    http://localhost:3000
+#
+# Network layout (MASTER_PLAN §15.2): every Langfuse container is on the internal `langfuse-net`.
+# Only langfuse-web also joins `backend-net`, so the backend/eval can reach it and it can publish :3000.
+# Postgres, ClickHouse, Redis and the worker are reachable by nothing outside the Langfuse stack.
+name: hybrid-rag
+
+services:
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:4
+    container_name: rag-langfuse-worker
+    restart: unless-stopped
+    env_file: [.env.langfuse]
+    depends_on: &lf-deps
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    networks: [langfuse-net]
+
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:4
+    container_name: rag-langfuse-web
+    restart: unless-stopped
+    env_file: [.env.langfuse]
+    environment:
+      # Next.js listens on $HOSTNAME; 0.0.0.0 makes it reachable on 127.0.0.1 for the healthcheck
+      HOSTNAME: 0.0.0.0
+    depends_on: *lf-deps
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/public/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks: [langfuse-net, backend-net]
+
+  langfuse-clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:26.3.62.3
+    container_name: rag-langfuse-clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    env_file: [.env.langfuse]
+    environment:
+      CLICKHOUSE_DB: default
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    networks: [langfuse-net]
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio
+    container_name: rag-langfuse-minio
+    restart: unless-stopped
+    env_file: [.env.langfuse]
+    entrypoint: sh
+    # create the 'langfuse' bucket before starting the server
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    # No published port: langfuse-net is internal, and Podman cannot publish ports from an internal
+    # network. MinIO is only used by Langfuse itself (event/media storage); browser media URLs
+    # (http://localhost:9090) are not used by this project.
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 2s
+    networks: [langfuse-net]
+
+  langfuse-redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: rag-langfuse-redis
+    restart: unless-stopped
+    env_file: [.env.langfuse]
+    # $$ = a literal $ for the shell, so the password comes from the container's env
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_AUTH\" --maxmemory-policy noeviction"]
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_AUTH\" --no-auth-warning ping | grep PONG"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks: [langfuse-net]
+
+  langfuse-postgres:
+    image: docker.io/library/postgres:17
+    container_name: rag-langfuse-postgres
+    restart: unless-stopped
+    env_file: [.env.langfuse]
+    environment:
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks: [langfuse-net]
+
+networks:
+  # Only the Langfuse containers are here. `internal: true` = no route to the internet or the host.
+  langfuse-net:
+    name: langfuse-net
+    internal: true
+  # Shared with compose.yaml: only langfuse-web joins it, so the backend can send traces to it.
+  backend-net:
+    name: backend-net
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
+  langfuse_redis_data:

@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+.env.langfuse
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Local data that lives in volumes / is generated
+data/qdrant_snapshots/*
+!data/qdrant_snapshots/.gitkeep
+data/uploads/
+tests/eval/reports/*
+!tests/eval/reports/.gitkeep
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Generated from .env for podman kube play
+deploy/kube/secret.yaml

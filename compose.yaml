@@ -1,0 +1,225 @@
+# App services, grouped by tier (MASTER_PLAN §15):
+#
+#   FRONTEND  frontend, mcp-server   talk to the backend over HTTP only         (frontend-net)
+#   BACKEND   backend                the only container that touches the data    (frontend-net + backend-net)
+#   DATA      mongodb, qdrant, redis  storage and cache, backend tier only       (backend-net)
+#   JOBS      eval                    one-off RAGAS run, a client of the backend (frontend-net + backend-net)
+#   DEV       mongo-express           look inside MongoDB while learning         (backend-net)
+#
+# Start:                 podman-compose up -d
+# With Langfuse:         podman-compose -f compose.yaml -f compose.observability.yaml up -d
+# Dev extras:            podman-compose --profile dev up -d     (adds mongo-express)
+# Evaluation (one-off):  podman-compose --profile eval run --rm eval --mode all
+#
+# The compose file reads .env for ${...} values. Only the backend gets the whole .env as its
+# environment; every other container gets just the few variables listed under `environment:`.
+name: hybrid-rag
+
+services:
+  # ======================================= FRONTEND =======================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Containerfile
+    image: ${IMAGE_REGISTRY:-localhost}/hybrid-rag-frontend:${APP_VERSION:-v1.0.0}
+    container_name: rag-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      API_KEY: ${API_KEY:-}
+      LANGFUSE_PUBLIC_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:8050:8050"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8050/healthz', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks: [frontend-net]
+
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Containerfile
+    image: ${IMAGE_REGISTRY:-localhost}/hybrid-rag-mcp:${APP_VERSION:-v1.0.0}
+    container_name: rag-mcp
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      API_KEY: ${API_KEY:-}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      MCP_TRANSPORT: http
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:8100:8100"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [frontend-net]
+
+  # ======================================== BACKEND =======================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Containerfile
+    image: ${IMAGE_REGISTRY:-localhost}/hybrid-rag-backend:${APP_VERSION:-v1.0.0}
+    container_name: rag-backend
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DOCS_DIR: /data/docs
+      MONGO_URI: mongodb://mongodb:27017
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+    volumes:
+      - ./data/docs:/data/docs
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/config', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [frontend-net, backend-net]
+
+  # ========================================= DATA =========================================
+  mongodb:
+    image: docker.io/library/mongo:8
+    container_name: rag-mongodb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [backend-net]
+
+  qdrant:
+    image: docker.io/qdrant/qdrant:v1.20.2
+    container_name: rag-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"   # REST API + dashboard: http://localhost:6333/dashboard
+      - "127.0.0.1:6334:6334"   # gRPC
+    volumes:
+      # Live storage in a NAMED volume (safe on Windows/WSL, see MASTER_PLAN §3.1) ...
+      - qdrant_storage:/qdrant/storage
+      # ... and snapshots in a folder you can see in Windows Explorer.
+      - ./data/qdrant_snapshots:/qdrant/snapshots
+    healthcheck:
+      # the qdrant image has no curl; bash can open a TCP connection itself
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [backend-net]
+
+  # The app's cache (embeddings, search results, answers). Separate from Langfuse's own Redis:
+  # Langfuse's is a job queue that must never drop keys; a cache should drop the oldest ones.
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD is empty. Run tasks.ps1 setup}"
+    # $$ = a literal $ for the shell, so the password is read from the container's environment
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --maxmemory 256mb --maxmemory-policy allkeys-lru --save 300 10 --dir /data"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [backend-net]
+
+  # ========================================= JOBS =========================================
+  # One-off job: runs the RAGAS evaluation and exits. A client of the backend; it also writes
+  # scores straight to Langfuse (hence backend-net).
+  eval:
+    build:
+      context: ./eval
+      dockerfile: Containerfile
+    image: ${IMAGE_REGISTRY:-localhost}/hybrid-rag-eval:${APP_VERSION:-v1.0.0}
+    container_name: rag-eval
+    profiles: ["eval"]
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      API_KEY: ${API_KEY:-}
+      EVAL_DIR: /work/eval
+      EVAL_LLM_MODEL: ${EVAL_LLM_MODEL:-gemini-2.5-flash}
+      EVAL_MAX_WORKERS: ${EVAL_MAX_WORKERS:-2}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-hf_api}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-384}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      HF_TOKEN: ${HF_TOKEN:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse-web:3000}
+      LANGFUSE_PUBLIC_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3000}
+      LANGFUSE_PROJECT_ID: ${LANGFUSE_PROJECT_ID:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+    volumes:
+      - ./tests/eval:/work/eval
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [frontend-net, backend-net]
+
+  # ========================================== DEV =========================================
+  mongo-express:
+    image: docker.io/library/mongo-express:1
+    container_name: rag-mongo-express
+    profiles: ["dev"]
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
+      ME_CONFIG_BASICAUTH: "false"
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks: [backend-net]
+
+networks:
+  # frontend-net: browser-facing tier. Contains no data stores.
+  frontend-net:
+    name: frontend-net
+  # backend-net: the backend and everything it stores data in. The frontend cannot reach it.
+  backend-net:
+    name: backend-net
+
+volumes:
+  mongo_data:
+  qdrant_storage:
+  redis_data:

@@ -1,0 +1,24 @@
+Ticket: TCK-10560
+Opened: 2026-03-03 13:20
+Priority: P3
+Customer: C-1104 (pot plant grower, 1.2 ha, Netherlands)
+Controller firmware: 4.2.1
+Assigned: L1 Support Desk (Sofia Marin)
+Status: Solved
+
+Customer message:
+Two of our sensors in the new section of the greenhouse go offline several times a day. The batteries are new. The other sensors are fine.
+
+L1 notes:
+Both nodes (named "Expedition 1" and "Expedition 2") are in a new section behind the cold store, about 70 m from the controller. E-312 is raised 4-6 times a day and clears after 10-20 minutes. Batteries are lithium, 98%. Signal strength in the app is around -112 dBm for both, which is at the edge.
+
+The cold store is a steel-clad building, and it is between the controller and the nodes. Metal structures block the 868 MHz radio. The distance is also above the 60 m we plan for inside a greenhouse.
+
+Recommended one SK-R1 repeater mounted on the greenhouse wall next to the cold store, with a line of sight to both the controller side and the new section. Customer ordered one SK-R1.
+
+Update 2026-03-12:
+Repeater installed and paired. Both nodes now route through the repeater, signal around -85 dBm. No E-312 since installation.
+
+Resolution:
+Radio path blocked by steel cold store plus distance. Solved with one SK-R1 repeater.
+Closed: 2026-03-19 09:30

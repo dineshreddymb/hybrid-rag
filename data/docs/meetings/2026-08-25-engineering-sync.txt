@@ -1,0 +1,10 @@
+Engineering weekly sync, 25 August 2026
+Present: Priya Raman (chair), Hana Kovac, Rafael Ortiz, Ingrid Solheim, Pieter van Dam, Samuel Okafor
+
+4.3.0 release: planned for 1 September. The firmware is ready, but in the last test of the staged rollout in Vellora Cloud the automatic pause did not trigger when the simulated alarm rate rose by 25 percent (threshold is 20 percent). Rafael's team found the bug: the alarm rate was compared against the previous day instead of against controllers not yet updated. Decision: move the 4.3.0 release to 9 September 2026 so the staged rollout can be rehearsed on 60 internal and partner controllers first. Nobody wanted to ship the first staged rollout without a rehearsal, given PM-003.
+
+Test lab: Lab 2 now has two VX-8 modules, so the soak test covers all 16 valve outputs. The 4.3.0 soak test ran 21 days without unexpected alarms.
+
+API v1: about 9 percent of API traffic still uses v1, from 31 organisations. Shutdown stays 31 March 2027, with reminder emails in January and March 2027.
+
+Actions: Rafael to fix the rollout pause and rehearse by 4 September; Samuel to inform Sales and installation partners; Support to write a note about the new 600-second max_cycle_sec default.

@@ -1,0 +1,10 @@
+Monthly support review (September 2026 figures), 6 October 2026
+Present: Jonas Weber (chair), Sofia Marin, Arjun Desai, Neha Kulkarni, Hana Kovac
+
+Volume: 412 tickets in September, up from 355 in August, mostly questions about the 4.3.0 staged rollout.
+
+Top categories: sensor connectivity (E-312, pairing, range) 31 percent; firmware update questions 22 percent; irrigation configuration 14 percent, many about the new 600-second max cycle default; app and notifications 12 percent; Modbus and wiring (E-217, E-218) 9 percent; other 12 percent.
+
+Response times: median first response 2.1 business hours against a target of 4. Three P1 cases, all answered within 30 minutes.
+
+Decisions: firmware 4.3.1 will show a one-time warning to sites that used the old 900-second default. E-271 tickets are almost zero since 4.2.1. Customers in hot regions see E-305 (battery low) before 18 months because battery life is shorter at sustained high temperatures; the FAQ will be updated.

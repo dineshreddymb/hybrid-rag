@@ -1,0 +1,14 @@
+/* Small tweaks on top of Bootstrap 5. Dash serves this file automatically. */
+body { background-color: #f6f7f9; }
+.chat-user-bubble {
+  background: #0d6efd; color: #fff; padding: .5rem .85rem;
+  border-radius: 1rem 1rem .25rem 1rem; max-width: 80%; white-space: pre-wrap;
+}
+#chat-history p:last-child { margin-bottom: 0; }
+.health-card .card-body { min-height: 6rem; }
+.upload-box {
+  border: 2px dashed #adb5bd; border-radius: .5rem; padding: 1rem; text-align: center;
+  background: #fff; cursor: pointer;
+}
+.upload-box:hover { border-color: #0d6efd; }
+.chunk-text { white-space: pre-wrap; font-size: .85rem; }

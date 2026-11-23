@@ -1,0 +1,10 @@
+POST-INCIDENT REVIEW PM-003: Irrigation valves stayed open after false overcurrent alarms
+Date: 2025-12-02. Severity: SEV-1 (crop damage). Author: Hana Kovac. Linked issue: VEL-2291.
+
+Summary: At a tomato grower in the Westland region (customer C-0457), valves V9 to V12 on the VX-8 expansion module stayed open for up to 47 minutes during the early morning cycle instead of the planned 8 minutes. A bay of about 3,200 square metres was overwatered and Vellora credited the customer 18,000 euros. The controller ran firmware 4.2.0.
+
+What happened: At 05:12 the controller raised a false E-271 (valve overcurrent) on V10. The firmware reset the valve driver for V9 to V16, and a timing bug in the reset left V9 to V12 energised while the firmware and the app showed them as closed. The grower closed the main supply by hand at 05:59.
+
+Root cause: Firmware 4.2.0 read VX-8 current with the onboard scaling factor, so a normal 0.8 A was reported as about 1.2 A, right at the 1.2 A trip level. The maximum cycle time (irrigation.max_cycle_sec, then 900 seconds by default) was only enforced by the main firmware, which believed the valves were off. Lab 1 and Lab 2 had no VX-8 module installed during the 4.2.0 soak test, so the bug was not caught.
+
+Fix: hotfix 4.2.1-rc1 installed at the customer on 2025-12-05; firmware 4.2.1 released to everyone on 14 January 2026 with correct scaling, a fixed driver reset and a hardware irrigation watchdog. Follow-ups: default max_cycle_sec lowered from 900 to 600 seconds in 4.3.0; VX-8 installed in Lab 2; 14 customers with E-271 on V9 to V16 were contacted.

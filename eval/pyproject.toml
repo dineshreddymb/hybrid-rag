@@ -1,0 +1,35 @@
+[project]
+name = "hybrid-rag-eval"
+version = "0.1.0"
+description = "Evaluation job for the hybrid RAG: hit@k / MRR / abstention + RAGAS + Langfuse"
+requires-python = ">=3.12"
+# Pinned to a set pip resolved together (2026-11-17, `pip freeze`). RAGAS APIs change between
+# versions, so ragas is pinned exactly (see eval_job/ragas_runner.py for the API used).
+dependencies = [
+    "ragas==0.4.4",
+    "langchain-core==1.8.1",
+    "langchain-google-genai==4.5.0",
+    # Langfuse Python SDK v5 needs a Langfuse server >= 4.59 (we run langfuse:4).
+    "langfuse==5.2.0",
+    "httpx==0.28.1",
+    # Transitive deps of ragas, pinned explicitly: without them pip backtracks to
+    # instructor 1.3.2 (pre-google-genai) + openai 1.x.
+    "instructor==1.17.0",
+    "openai==3.3.0",
+    "langchain==1.5.0",
+    "langchain-community==0.4.2",
+    "langchain-openai==1.8.0",
+    "google-genai==3.4.0",
+    "datasets==5.2.0",
+    "tiktoken==0.14.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["eval_job*"]

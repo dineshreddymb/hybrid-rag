@@ -1,0 +1,8 @@
+POST-INCIDENT REVIEW PM-001: Vellora Cloud unreachable for all controllers
+Date: 2025-03-09 (Sunday). Duration: 3 hours 40 minutes (04:10 to 07:50 UTC). Severity: SEV-1. Author: Rafael Ortiz.
+
+Summary: The TLS certificate of the public API gateway expired. All G3 controllers lost their cloud connection and showed warning E-401 with a blinking green LED, and the app showed every controller as offline. Climate and irrigation control continued locally on every site and no crop damage was reported. About 240 customers contacted support. Alarm push notifications during the outage were not delivered, but controllers handled frost alarms locally as designed.
+
+Root cause: The certificate was renewed by a scheduled job that used DNS validation. When Vellora moved its DNS to a new provider in January 2025, the job kept the old provider's credentials, so every renewal since January failed silently. The connected-controllers alert went to an email list instead of the on-call pager, and 1 hour 30 minutes passed before anyone started work.
+
+Action items: monitor all public certificate expiry dates and page on-call at 14 days (done); route the connected-controllers alert to on-call (done); launch a public status page (done 2025-04-30).

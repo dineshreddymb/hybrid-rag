@@ -1,0 +1,23 @@
+Ticket: TCK-10517
+Opened: 2025-12-09 06:55
+Priority: P2
+Customer: C-0782 (pepper grower, 5.1 ha, Spain)
+Controller firmware: 4.2.0
+Assigned: L1 Support Desk (Sofia Marin)
+Linked engineering issue: VEL-2291
+Status: Solved
+
+Customer message:
+Every morning we get valve overcurrent alarms on valves 11 and 14. Our electrician has replaced both solenoids and checked the cables, and the coils measure 28 ohms, which is normal. The alarms continue. Irrigation in those zones is cancelled each time and the plants are getting dry.
+
+L1 notes:
+Customer has a VX-8 expansion module; valves 11 and 14 are on it. Firmware 4.2.0. This matches the known issue for E-271 on V9-V16 with 4.2.0 (VEL-2291, see also the incident review PM-003). Told the customer not to replace more valves.
+
+Workaround given: move zones from V11 and V14 to free onboard outputs V7 and V8 temporarily until the fixed firmware is available. Customer did this the same day; alarms stopped on those zones.
+
+Update 2026-01-15:
+Firmware 4.2.1 released yesterday with the fix for VEL-2291. Customer updated, moved the zones back to V11 and V14. No E-271 alarms for one week.
+
+Resolution:
+False E-271 caused by firmware 4.2.0 defect VEL-2291. Fixed by updating to 4.2.1. Customer asked about compensation for the two replaced solenoids; forwarded to Jonas Weber, who approved a credit for the parts.
+Closed: 2026-01-22 10:05
