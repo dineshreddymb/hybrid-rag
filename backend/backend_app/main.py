@@ -213,17 +213,31 @@ def ingest_scan(force: bool = False):
 
 @app.post("/documents/upload")
 async def upload_documents(files: list[UploadFile] = File(...)):
+    import io
+    import zipfile
+
     jobs = []
     for f in files:
         name = f.filename or "upload.md"
-        if not name.lower().endswith((".md", ".txt")):
-            raise HTTPException(400, f"{name}: only .md and .txt files are supported")
         raw = await f.read()
-        try:
-            content = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            raise HTTPException(400, f"{name}: file is not UTF-8 text")
-        jobs.append(pipeline.ingest_text(name, content, trigger="upload"))
+        if name.lower().endswith(".zip"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                    for member in z.infolist():
+                        if not member.is_dir() and member.filename.lower().endswith((".md", ".txt")):
+                            sub_name = member.filename
+                            content = z.read(member).decode("utf-8", errors="replace")
+                            jobs.append(pipeline.ingest_text(sub_name, content, trigger="zip_upload"))
+            except Exception as exc:
+                raise HTTPException(400, f"{name}: invalid zip file ({exc})")
+        elif name.lower().endswith((".md", ".txt")):
+            try:
+                content = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                raise HTTPException(400, f"{name}: file is not UTF-8 text")
+            jobs.append(pipeline.ingest_text(name, content, trigger="upload"))
+        else:
+            raise HTTPException(400, f"{name}: only .md, .txt, and .zip files are supported")
     return {"jobs": jobs}
 
 

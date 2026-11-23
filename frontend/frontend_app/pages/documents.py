@@ -81,9 +81,9 @@ def layout(**_kwargs):
     add_card = dbc.Card([
         dbc.CardHeader("Add documents", class_name="fw-semibold"),
         dbc.CardBody([
-            dcc.Upload(id="docs-upload", multiple=True, accept=".md,.txt",
+            dcc.Upload(id="docs-upload", multiple=True, accept=".md,.txt,.zip",
                        children=html.Div([html.I(className="bi bi-cloud-arrow-up fs-3 d-block"),
-                                          "Drag & drop or click to upload .md / .txt files"]),
+                                          "Drag & drop or click to upload .md / .txt / .zip files"]),
                        className="upload-box mb-3"),
             dbc.Button([html.I(className="bi bi-folder2-open me-1"), "Scan data/docs folder"],
                        id="docs-scan", color="secondary", class_name="me-2 mb-2", n_clicks=0),
