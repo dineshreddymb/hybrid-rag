@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     docs_remote_zip_url: str = ""
     docs_sync_interval_seconds: int = 300
     docs_sync_enabled: bool = True
+    supabase_url: str = "https://eedxymqeghvxjkzfvvbd.supabase.co"
+    supabase_anon_key: str = ""
+    supabase_bucket: str = "docs"
 
     # --- Redis cache (backend only) --------------------------------------------
     cache_enabled: bool = True
@@ -169,6 +172,9 @@ class Settings(BaseSettings):
             "docs_remote_zip_url": self.docs_remote_zip_url,
             "docs_sync_enabled": self.docs_sync_enabled,
             "docs_sync_interval_seconds": self.docs_sync_interval_seconds,
+            "supabase_url": self.supabase_url,
+            "supabase_bucket": self.supabase_bucket,
+            "supabase_anon_key_set": bool(self.supabase_anon_key),
             "app_version": self.app_version,
             "git_commit": self.git_commit,
             "build_date": self.build_date,

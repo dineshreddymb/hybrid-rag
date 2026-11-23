@@ -132,3 +132,46 @@ def test_sync_direct_markdown_file():
         assert len(items_passed) == 1
         assert items_passed[0]["source"] == "compliance/policy.md"
         assert "Direct Cloud Document" in items_passed[0]["content"]
+
+
+def test_sync_supabase_bucket_discovery():
+    sample_zip = _create_sample_zip_bytes()
+    sample_txt = b"New extra document text."
+
+    mock_objects = [
+        {"name": "docs.zip", "metadata": {"eTag": "etag-zip-1"}},
+        {"name": "docs2.txt", "metadata": {"eTag": "etag-txt-2"}},
+    ]
+
+    def mock_download(url, timeout=45.0):
+        if url.endswith("docs.zip"):
+            return sample_zip
+        return sample_txt
+
+    with patch("backend_app.ingestion.remote_sync.list_supabase_bucket_objects", return_value=mock_objects), \
+         patch("backend_app.ingestion.remote_sync.download_remote_zip", side_effect=mock_download), \
+         patch("backend_app.ingestion.pipeline.ingest_items") as mock_ingest:
+        mock_ingest.return_value = {
+            "job_id": "job_bucket_sync",
+            "results": [{"source": "docs2.txt", "status": "ingested", "chunks_new": 1}],
+        }
+
+        res = remote_sync.sync_supabase_bucket(
+            supabase_url="https://mock.supabase.co",
+            bucket="docs",
+            anon_key="fake-anon-key",
+            force=True,
+        )
+
+        assert res["status"] == "synced"
+        assert res["bucket"] == "docs"
+        assert "docs.zip" in res["synced_objects"]
+        assert "docs2.txt" in res["synced_objects"]
+        assert mock_ingest.called
+
+        items = mock_ingest.call_args[0][0]
+        sources = [i["source"] for i in items]
+        assert "docs2.txt" in sources
+        assert "compliance/audit.md" in sources  # from zip
+        assert "engineering/api.md" in sources   # from zip
+
