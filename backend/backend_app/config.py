@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     # --- Files -------------------------------------------------------------
     docs_dir: str = "/data/docs"
     auto_ingest_on_startup: bool = True
+    docs_remote_zip_url: str = ""
+    docs_sync_interval_seconds: int = 300
+    docs_sync_enabled: bool = True
 
     # --- Redis cache (backend only) --------------------------------------------
     cache_enabled: bool = True
@@ -163,6 +166,9 @@ class Settings(BaseSettings):
             "google_api_key_set": bool(self.google_api_key),
             "rerank_provider": self.rerank_provider,
             "rerank_model": self.rerank_model,
+            "docs_remote_zip_url": self.docs_remote_zip_url,
+            "docs_sync_enabled": self.docs_sync_enabled,
+            "docs_sync_interval_seconds": self.docs_sync_interval_seconds,
             "app_version": self.app_version,
             "git_commit": self.git_commit,
             "build_date": self.build_date,

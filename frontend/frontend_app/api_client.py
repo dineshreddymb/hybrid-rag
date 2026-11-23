@@ -177,6 +177,18 @@ class ApiClient:
     def ingestion_jobs(self, limit: int = 50) -> list[dict]:
         return self.get("/ingestion-jobs", limit=limit) or []
 
+    def sync_remote(self, force: bool = False, url: str | None = None) -> dict:
+        params = {}
+        if force:
+            params["force"] = "true"
+        if url:
+            params["url"] = url
+        return self.request("POST", "/documents/sync-remote", params=params or None,
+                            timeout=ASK_TIMEOUT)
+
+    def sync_status(self) -> dict:
+        return self.get("/documents/sync-status") or {}
+
     # --- logs & eval --------------------------------------------------------------------------
     def logs(self, service: str | None = None, level: str | None = None,
              request_id: str | None = None, q: str | None = None, limit: int = 200) -> list[dict]:

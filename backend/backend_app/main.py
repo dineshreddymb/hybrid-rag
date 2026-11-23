@@ -53,6 +53,27 @@ def _startup_tasks() -> None:
             pipeline.scan_docs_dir(trigger="startup")
         except Exception as exc:  # noqa: BLE001
             log.error("startup_ingest_failed", error=str(exc))
+    if s.docs_sync_enabled and s.docs_remote_zip_url:
+        try:
+            from backend_app.ingestion import remote_sync
+            remote_sync.sync_remote_zip(force=False)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("startup_remote_sync_failed", error=str(exc))
+
+
+def _remote_sync_loop(stop_event: threading.Event) -> None:
+    """Recurring background timer to check remote cloud storage for updates."""
+    from backend_app.ingestion import remote_sync
+    s = get_settings()
+    while not stop_event.is_set():
+        interval = max(30, s.docs_sync_interval_seconds)
+        if stop_event.wait(timeout=interval):
+            break
+        if s.docs_sync_enabled and s.docs_remote_zip_url:
+            try:
+                remote_sync.sync_remote_zip(force=False)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("periodic_remote_sync_failed", error=str(exc))
 
 
 @asynccontextmanager
@@ -61,8 +82,12 @@ async def lifespan(_: FastAPI):
     setup_logging(s.service_name, s.log_level, s.mongo_uri if s.log_to_mongo else None, s.mongo_db)
     log.info("api_starting", config=s.public_summary())
     threading.Thread(target=_startup_tasks, daemon=True, name="startup").start()
+    sync_stop = threading.Event()
+    if s.docs_sync_enabled and s.docs_remote_zip_url:
+        threading.Thread(target=_remote_sync_loop, args=(sync_stop,), daemon=True, name="remote_sync").start()
     backups.start()
     yield
+    sync_stop.set()
     backups.stop()
     flush()
 
@@ -239,6 +264,20 @@ async def upload_documents(files: list[UploadFile] = File(...)):
         else:
             raise HTTPException(400, f"{name}: only .md, .txt, and .zip files are supported")
     return {"jobs": jobs}
+
+
+@app.post("/documents/sync-remote")
+def trigger_remote_sync(force: bool = False, url: str | None = None):
+    """Trigger on-demand sync from cloud storage with in-memory parallel folder decomposition."""
+    from backend_app.ingestion import remote_sync
+    return remote_sync.sync_remote_zip(url=url, force=force)
+
+
+@app.get("/documents/sync-status")
+def get_remote_sync_status():
+    """Get real-time cloud sync telemetry, ETag, and folder space/time metrics."""
+    from backend_app.ingestion import remote_sync
+    return remote_sync.get_sync_status()
 
 
 @app.post("/documents/text")

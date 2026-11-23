@@ -13,6 +13,7 @@ __pycache__/
 data/qdrant_snapshots/*
 !data/qdrant_snapshots/.gitkeep
 data/uploads/
+*.zip
 tests/eval/reports/*
 !tests/eval/reports/.gitkeep
 
