@@ -188,35 +188,69 @@ def sync_remote_zip(
 
     log.info("remote_sync_downloading", url=target_url, etag=current_etag, force=force)
     try:
-        zip_bytes = download_remote_zip(target_url)
+        raw_bytes = download_remote_zip(target_url)
     except Exception as exc:  # noqa: BLE001
         _sync_state["last_status"] = "error"
         _sync_state["last_error"] = str(exc)
         return {"status": "error", "message": f"Download failed: {exc}"}
 
-    # Group files into folder branches
-    folder_groups = group_zip_by_folders(zip_bytes)
-    folder_names = sorted(folder_groups.keys())
-    _sync_state["cached_folders"] = folder_names
-
-    if not folder_groups:
-        _sync_state["last_status"] = "empty"
-        return {"status": "empty", "message": "No .md or .txt documents found in the zip archive."}
-
-    # Dispatch parallel workers across folder branches
     all_items: list[dict] = []
     folder_metrics: list[dict] = []
-    num_workers = max(1, min(len(folder_groups), max_workers))
+    is_zip = target_url.lower().split("?")[0].endswith(".zip") or raw_bytes.startswith(b"PK\x03\x04")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = {
-            executor.submit(_crawl_folder_worker, f, members, zip_bytes, force): f
-            for f, members in folder_groups.items()
-        }
-        for future in concurrent.futures.as_completed(futures):
-            folder_items, folder_stats = future.result()
-            all_items.extend(folder_items)
-            folder_metrics.append(folder_stats)
+    if is_zip:
+        # 1. ZIP Archive: Group files into folder branches and extract in parallel
+        folder_groups = group_zip_by_folders(raw_bytes)
+        folder_names = sorted(folder_groups.keys())
+        _sync_state["cached_folders"] = folder_names
+
+        if not folder_groups:
+            _sync_state["last_status"] = "empty"
+            return {"status": "empty", "message": "No .md or .txt documents found in the zip archive."}
+
+        num_workers = max(1, min(len(folder_groups), max_workers))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = {
+                executor.submit(_crawl_folder_worker, f, members, raw_bytes, force): f
+                for f, members in folder_groups.items()
+            }
+            for future in concurrent.futures.as_completed(futures):
+                folder_items, folder_stats = future.result()
+                all_items.extend(folder_items)
+                folder_metrics.append(folder_stats)
+    else:
+        # 2. Direct single file (.md, .txt, or plain text document)
+        import urllib.parse
+        parsed = urllib.parse.urlparse(target_url)
+        path_clean = parsed.path.replace("\\", "/").strip("/")
+
+        if "/object/public/" in parsed.path:
+            rel_path = parsed.path.split("/object/public/", 1)[1]
+            parts = rel_path.split("/", 1)
+            file_path = parts[1] if len(parts) > 1 and parts[0] == "docs" else rel_path
+        else:
+            file_path = path_clean.split("/")[-1] or "document.md"
+
+        folder_name = file_path.split("/")[0] if "/" in file_path else "root"
+        _sync_state["cached_folders"] = [folder_name]
+
+        text = raw_bytes.decode("utf-8", errors="replace")
+        size_b = len(raw_bytes)
+        all_items = [{
+            "source": file_path,
+            "content": text,
+            "origin": "cloud_sync",
+            "folder": folder_name,
+            "size": size_b,
+            "force": force,
+        }]
+        folder_metrics = [{
+            "folder": folder_name,
+            "files_count": 1,
+            "total_bytes": size_b,
+            "duration_ms": 1.0,
+            "files": [file_path],
+        }]
 
     # Ingest discovered items preserving full relative paths
     job_result = pipeline.ingest_items(all_items, trigger="cloud_sync", prune_missing=False)
@@ -253,7 +287,7 @@ def sync_remote_zip(
         "etag": current_etag,
         "url": target_url,
         "total_files": len(all_items),
-        "total_folders": len(folder_groups),
+        "total_folders": len(folder_metrics),
         "duration_s": total_duration_s,
         "job_id": job_result.get("job_id"),
         "folder_metrics": folder_metrics,

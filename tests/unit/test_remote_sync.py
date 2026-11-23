@@ -99,3 +99,36 @@ def test_sync_status_telemetry():
     assert "url" in status
     assert "last_status" in status
     assert "cached_folders" in status
+
+
+def test_sync_direct_markdown_file():
+    md_content = b"# Direct Cloud Document\nThis is a markdown file directly in cloud storage."
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.headers = {
+        "ETag": '"etag-direct-md"',
+        "Last-Modified": "Mon, 23 Nov 2026 09:30:00 GMT",
+        "Content-Length": str(len(md_content)),
+    }
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.read.return_value = md_content
+
+    with patch("urllib.request.urlopen", return_value=mock_resp), \
+         patch("backend_app.ingestion.pipeline.ingest_items") as mock_ingest:
+        mock_ingest.return_value = {
+            "job_id": "job_direct_md",
+            "results": [{"source": "compliance/policy.md", "status": "ingested", "chunks_new": 1}],
+        }
+
+        url = "https://mock.supabase.co/storage/v1/object/public/docs/compliance/policy.md"
+        res = remote_sync.sync_remote_zip(url=url, force=True)
+        assert res["status"] == "synced"
+        assert res["total_files"] == 1
+        assert res["total_folders"] == 1
+        assert res["folder_metrics"][0]["folder"] == "compliance"
+        assert mock_ingest.called
+
+        items_passed = mock_ingest.call_args[0][0]
+        assert len(items_passed) == 1
+        assert items_passed[0]["source"] == "compliance/policy.md"
+        assert "Direct Cloud Document" in items_passed[0]["content"]
