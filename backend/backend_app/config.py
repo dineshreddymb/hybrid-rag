@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     llm_model: str = "gemini-3.1-flash-lite"
     llm_temperature: float = 0.0
-    # Gemini 2.5 Flash "thinking" tokens: 0 = off (cheaper, faster). -1 = don't send the
-    # parameter at all (needed for models that cannot turn thinking off).
-    llm_thinking_budget: int = 0
+    # Gemini 2.5 Flash "thinking" tokens: 0 = off. -1 = don't send the parameter
+    # at all (default, required for gemini-2.0-flash and gemini-1.5 which reject thinking_budget).
+    llm_thinking_budget: int = -1
 
     # --- Embeddings --------------------------------------------------------
     embedding_provider: Literal["hf_api", "tei", "fake", "jina"] = "jina"

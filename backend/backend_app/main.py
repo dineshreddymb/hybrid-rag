@@ -383,6 +383,9 @@ def ask(body: AskRequest):
     except RuntimeError as exc:  # e.g. missing API keys
         log.error("ask_failed", error=str(exc))
         raise HTTPException(503, str(exc))
+    except Exception as exc:
+        log.error("ask_unhandled_exception", error=str(exc))
+        raise HTTPException(500, f"RAG execution failed: {exc}")
 
 
 @app.post("/ask/stream")

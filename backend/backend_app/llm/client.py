@@ -59,7 +59,8 @@ def get_chat_model() -> BaseChatModel:
         "max_retries": 2,
         "timeout": 30,
     }
-    if s.llm_thinking_budget >= 0:
+    # Only pass thinking_budget for models that support it (reasoning / thinking models)
+    if s.llm_thinking_budget >= 0 and any(m in s.llm_model.lower() for m in ("thinking", "2.5", "3.")):
         kwargs["thinking_budget"] = s.llm_thinking_budget
     return ChatGoogleGenerativeAI(**kwargs)
 
