@@ -45,6 +45,30 @@ def flask_health():
     """Healthcheck endpoint for cloud platforms (e.g. Railway, Render)."""
     return "OK", 200
 
+
+@server.route("/api/ask/stream", methods=["POST"])
+def flask_proxy_stream():
+    """Proxy SSE stream from FastAPI backend directly to browser client."""
+    from flask import Response, request, stream_with_context
+    import httpx
+    body = request.get_json(silent=True) or {}
+    backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+    api_key = os.getenv("API_KEY", "")
+    headers = {"X-API-Key": api_key, "Content-Type": "application/json"} if api_key else {"Content-Type": "application/json"}
+
+    def generate():
+        try:
+            with httpx.stream("POST", f"{backend_url}/ask/stream", json=body, headers=headers, timeout=180.0) as r:
+                for line in r.iter_lines():
+                    if line:
+                        yield f"{line}\n\n"
+        except Exception as exc:
+            import json
+            yield f"data: {json.dumps({'event': 'error', 'error': str(exc)})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
 # Importing the page modules calls dash.register_page() in each one (order = navbar order).
 from .pages import chat, documents, retrieval, evaluation, logs, settings  # noqa: E402,F401
 

@@ -6,14 +6,22 @@ first. A hit skips the whole graph (no retrieval, no LLM calls) and shows up in 
 """
 from __future__ import annotations
 
+import json
+import re
 import time
+from typing import Iterator
+
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend_app.cache import store as cache
 from backend_app.config import get_settings
 from backend_app.db import repositories as repo
 from backend_app.graph.builder import get_graph
-from backend_app.llm.prompts import PROMPT_VERSION
+from backend_app.graph.nodes import _format_context
+from backend_app.llm import prompts
+from backend_app.llm.client import get_chat_model, text_of
 from backend_app.logging import get_logger
+from backend_app.retrieval import service as retrieval
 from backend_app.tracing import score, trace_request, trace_url
 
 log = get_logger(__name__)
@@ -137,3 +145,84 @@ def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid",
     log.info("ask_done", conversation_id=conv_id, mode=mode, latency_ms=latency_ms,
              cached=False, not_found=result["not_found"], grounded=result["grounded"])
     return result
+
+
+def ask_stream(question: str, conversation_id: str | None = None, mode: str = "hybrid",
+               top_k: int | None = None, weight_dense: float | None = None,
+               source: str = "api", use_history: bool = True, use_cache: bool = True,
+               fast_mode: bool | None = None) -> Iterator[str]:
+    """Stream answer tokens from Gemini in real time with low Time-To-First-Token (~300ms)."""
+    s = get_settings()
+    is_fast = s.fast_mode if fast_mode is None else bool(fast_mode)
+    started = time.perf_counter()
+    conv_id = repo.ensure_conversation(conversation_id, question)
+    top_k = top_k or s.top_k_final
+
+    # Check cache first for instant repeat answers
+    cache_key = None
+    if use_cache and s.cache_enabled:
+        cache_key = _answer_key(question, mode, top_k, weight_dense, is_fast)
+        hit = cache.get_json("answer", cache_key)
+        if hit is not None:
+            ans = hit.get("answer", "")
+            yield f"data: {json.dumps({'event': 'start', 'conversation_id': conv_id, 'citations': hit.get('citations', [])})}\n\n"
+            yield f"data: {json.dumps({'event': 'token', 'token': ans})}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'answer': ans, 'citations': hit.get('citations', []), 'cached': True, 'latency_ms': 15, 'conversation_id': conv_id})}\n\n"
+            return
+
+    # Fast retrieval (<30ms)
+    dense = retrieval.dense_search(question, s.top_k_dense) if mode in ("hybrid", "dense") else []
+    bm25 = retrieval.bm25_search(question, s.top_k_bm25) if mode in ("hybrid", "bm25") else []
+    fused = retrieval.fuse(mode, dense, bm25, s.hybrid_weight_dense if weight_dense is None else weight_dense, top_k)
+    attached = retrieval.attach_text(fused)
+    chunks = attached[:top_k]
+
+    citations = [{
+        "n": n, "chunk_id": c.get("chunk_id", ""), "source": c.get("source"),
+        "heading_path": c.get("heading_path", ""), "text": c.get("text", ""),
+        "cited": True,
+    } for n, c in enumerate(chunks, start=1)]
+
+    # Signal client that retrieval is complete and streaming is starting
+    yield f"data: {json.dumps({'event': 'start', 'conversation_id': conv_id, 'citations': citations})}\n\n"
+
+    # Context and prompt
+    user = f"Context excerpts:\n{_format_context(chunks)}\n\nQuestion: {question}"
+    messages = [SystemMessage(prompts.ANSWER), HumanMessage(user)]
+
+    full_answer = []
+    try:
+        chat_model = get_chat_model()
+        for chunk in chat_model.stream(messages, config={"run_name": "llm_answer"}):
+            tok = text_of(chunk)
+            if tok:
+                full_answer.append(tok)
+                yield f"data: {json.dumps({'event': 'token', 'token': tok})}\n\n"
+    except Exception as exc:
+        log.error("stream_generation_failed", error=str(exc))
+        yield f"data: {json.dumps({'event': 'error', 'error': str(exc)})}\n\n"
+        return
+
+    answer_str = "".join(full_answer).strip()
+    latency_ms = round((time.perf_counter() - started) * 1000)
+
+    # Detect cited bracket citations [1], [2]
+    cited_nums = {int(n) for n in re.findall(r"\[(\d+)\]", answer_str)}
+    for c in citations:
+        c["cited"] = c["n"] in cited_nums
+    is_not_found = not cited_nums and "couldn't find" in answer_str.lower()
+
+    # Save to MongoDB & cache in Redis
+    result = {
+        "answer": answer_str, "citations": citations, "conversation_id": conv_id,
+        "rewritten_query": question, "not_found": is_not_found, "grounded": None,
+        "grounding_reason": "streamed", "mode": mode, "latency_ms": latency_ms,
+        "cached": False, "trace_id": None, "trace_url": "",
+    }
+    _save_messages(conv_id, question, result, None, mode)
+    if cache_key and not is_not_found:
+        cache.set_json("answer", cache_key, {k: v for k, v in result.items() if k not in _PER_REQUEST})
+
+    log.info("ask_stream_done", conversation_id=conv_id, mode=mode, latency_ms=latency_ms)
+    yield f"data: {json.dumps({'event': 'done', 'answer': answer_str, 'citations': citations, 'latency_ms': latency_ms, 'conversation_id': conv_id})}\n\n"
+

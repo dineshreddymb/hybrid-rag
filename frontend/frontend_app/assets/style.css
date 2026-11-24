@@ -12,3 +12,13 @@ body { background-color: #f6f7f9; }
 }
 .upload-box:hover { border-color: #0d6efd; }
 .chunk-text { white-space: pre-wrap; font-size: .85rem; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.streaming-cursor {
+  animation: blink 0.8s infinite;
+  display: inline-block;
+  margin-left: 2px;
+}

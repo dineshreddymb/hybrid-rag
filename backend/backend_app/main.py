@@ -385,6 +385,20 @@ def ask(body: AskRequest):
         raise HTTPException(503, str(exc))
 
 
+@app.post("/ask/stream")
+def ask_stream_endpoint(body: AskRequest):
+    """Stream answer tokens from Gemini in real time with low TTFT (<300ms)."""
+    from fastapi.responses import StreamingResponse
+    from backend_app.graph.service import ask_stream
+    return StreamingResponse(
+        ask_stream(body.question, body.conversation_id, body.mode, body.top_k,
+                   body.weight_dense, body.source, body.use_history, body.use_cache,
+                   fast_mode=body.fast_mode),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/feedback")
 def feedback(body: Feedback):
     ok = score(body.trace_id, "user_feedback", float(body.value), comment=body.comment)

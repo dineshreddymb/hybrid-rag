@@ -168,6 +168,15 @@ def layout(**_kwargs):
         dbc.CardBody([
             html.Div(id="chat-history", style={"height": "60vh", "overflowY": "auto"},
                      className="pe-2"),
+            html.Div(id="chat-streaming-container", className="d-none mt-2", children=[
+                dbc.Card(dbc.CardBody([
+                    html.Div([html.I(className="bi bi-robot me-2 text-primary"), dbc.Badge("streaming live...", color="info", class_name="me-1")], className="mb-2"),
+                    html.Div([
+                        html.Span(id="chat-streaming-text", style={"whiteSpace": "pre-wrap"}),
+                        html.Span("▋", className="streaming-cursor text-primary fw-bold"),
+                    ], className="mb-0"),
+                ]), class_name="mb-3 shadow-sm", style={"maxWidth": "92%"}),
+            ]),
             dcc.Loading(html.Div(id="chat-busy", style={"minHeight": "1.5rem"}), type="dot",
                         color="#0d6efd"),
         ]),
@@ -186,6 +195,7 @@ def layout(**_kwargs):
         dcc.Store(id="chat-conv-id", storage_type="session"),
         dcc.Store(id="chat-messages", storage_type="session"),
         dcc.Store(id="chat-pending"),
+        dcc.Store(id="chat-stream-result"),
         dcc.Store(id="chat-scroll"),
         dbc.Row([dbc.Col(sidebar, md=3, class_name="mb-3"), dbc.Col(main, md=9)]),
     ])
@@ -231,36 +241,105 @@ def chat_controller(_send, _submit, _new, _conv_clicks, text, mode, fast_mode, m
                                      "t": time.time()}, None
 
 
-@dash.callback(
-    Output("chat-messages", "data", allow_duplicate=True),
+dash.clientside_callback(
+    """
+    async function(pending, conv_id) {
+        if (!pending || !pending.q) {
+            return [window.dash_clientside.no_update, window.dash_clientside.no_update, ""];
+        }
+        const container = document.getElementById('chat-streaming-container');
+        const textEl = document.getElementById('chat-streaming-text');
+        if (container) container.classList.remove('d-none');
+        if (textEl) textEl.innerText = "";
+        
+        try {
+            const res = await fetch('/api/ask/stream', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    question: pending.q,
+                    conversation_id: conv_id,
+                    mode: pending.mode || 'hybrid',
+                    fast_mode: pending.fast_mode !== false
+                })
+            });
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let fullText = "";
+            let citations = [];
+            let latency_ms = null;
+            let finalConvId = conv_id;
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, {stream: true});
+                const lines = buffer.split('\\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            if (data.event === 'token') {
+                                fullText += data.token;
+                                if (textEl) {
+                                    textEl.innerText = fullText;
+                                    const historyEl = document.getElementById('chat-history');
+                                    if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
+                                }
+                            } else if (data.event === 'start') {
+                                citations = data.citations || [];
+                                if (data.conversation_id) finalConvId = data.conversation_id;
+                            } else if (data.event === 'done') {
+                                latency_ms = data.latency_ms;
+                                if (data.conversation_id) finalConvId = data.conversation_id;
+                                if (data.answer) fullText = data.answer;
+                                if (data.citations) citations = data.citations;
+                            }
+                        } catch(e) {}
+                    }
+                }
+            }
+            if (container) container.classList.add('d-none');
+            
+            const newMsg = {
+                role: 'assistant',
+                content: fullText,
+                citations: citations,
+                latency_ms: latency_ms,
+                mode: pending.mode || 'hybrid',
+                grounded: null,
+                grounding_reason: 'streamed'
+            };
+            return [newMsg, finalConvId, ""];
+        } catch(err) {
+            if (container) container.classList.add('d-none');
+            return [{role: 'error', content: 'Streaming error: ' + err.message}, conv_id, ""];
+        }
+    }
+    """,
+    Output("chat-stream-result", "data"),
     Output("chat-conv-id", "data", allow_duplicate=True),
     Output("chat-busy", "children"),
     Input("chat-pending", "data"),
-    State("chat-messages", "data"),
     State("chat-conv-id", "data"),
-    running=[(Output("chat-send", "disabled"), True, False),
-             (Output("chat-input", "disabled"), True, False)],
     prevent_initial_call=True,
 )
-def chat_ask(pending, messages, conv_id):
-    if not pending or not pending.get("q"):
-        return no_update, no_update, no_update
+
+
+@dash.callback(
+    Output("chat-messages", "data", allow_duplicate=True),
+    Input("chat-stream-result", "data"),
+    State("chat-messages", "data"),
+    prevent_initial_call=True,
+)
+def chat_stream_finish(result, messages):
+    if not result:
+        return no_update
     messages = list(messages or [])
-    try:
-        r = get_client().ask(pending["q"], conversation_id=conv_id, mode=pending.get("mode"),
-                             fast_mode=pending.get("fast_mode", True))
-    except ApiError as exc:
-        if exc.status == 503:
-            msg = f"The RAG service is not ready: {exc.detail}"
-        elif exc.status == 401:
-            msg = "The API rejected the request: check API_KEY in .env."
-        else:
-            msg = str(exc)
-        return messages + [{"role": "error", "content": msg}], no_update, ""
-    answer = from_ask_response(r)
-    if (answer.get("rewritten_query") or "").strip() == pending["q"]:
-        answer["rewritten_query"] = None  # only show it when the rewrite changed something
-    return messages + [answer], r.get("conversation_id") or conv_id, ""
+    return messages + [result]
 
 
 @dash.callback(Output("chat-history", "children"), Input("chat-messages", "data"))
