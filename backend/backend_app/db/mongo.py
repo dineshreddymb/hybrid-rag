@@ -22,6 +22,10 @@ def get_db() -> Database:
 def ensure_indexes() -> None:
     s = get_settings()
     db = get_db()
+    try:
+        get_client().admin.command({"setParameter": 1, "indexBuildMinAvailableDiskSpaceMB": 0})
+    except Exception:
+        pass
     db.documents.create_index([("source", ASCENDING)], unique=True)
     db.chunks.create_index([("doc_id", ASCENDING), ("position", ASCENDING)])
     db.chunks.create_index([("chunk_id", ASCENDING)], unique=True)
