@@ -145,6 +145,7 @@ class AskRequest(BaseModel):
     source: str = "api"           # ui | mcp | eval | api  → Langfuse tag
     use_history: bool = True
     use_cache: bool = True        # false = skip the Redis caches for this request (eval does this)
+    fast_mode: bool | None = None # None = use server default (fast); True = fast path (~1.8s); False = deep evaluation (~8s)
 
 
 class SearchRequest(BaseModel):
@@ -377,7 +378,8 @@ def search(body: SearchRequest):
 def ask(body: AskRequest):
     try:
         return rag_ask(body.question, body.conversation_id, body.mode, body.top_k,
-                       body.weight_dense, body.source, body.use_history, body.use_cache)
+                       body.weight_dense, body.source, body.use_history, body.use_cache,
+                       fast_mode=body.fast_mode)
     except RuntimeError as exc:  # e.g. missing API keys
         log.error("ask_failed", error=str(exc))
         raise HTTPException(503, str(exc))

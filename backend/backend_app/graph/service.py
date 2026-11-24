@@ -22,7 +22,8 @@ log = get_logger(__name__)
 _PER_REQUEST = ("conversation_id", "trace_id", "trace_url", "latency_ms", "cached")
 
 
-def _answer_key(question: str, mode: str, top_k: int, weight_dense: float | None) -> str:
+def _answer_key(question: str, mode: str, top_k: int, weight_dense: float | None,
+                fast_mode: bool = True) -> str:
     s = get_settings()
     # Anything that can change the answer is part of the key (provider too, so an answer made by
     # the offline fake model is never served once a real model is configured).
@@ -30,6 +31,7 @@ def _answer_key(question: str, mode: str, top_k: int, weight_dense: float | None
         "q": question.strip(), "mode": mode, "top_k": top_k, "w": weight_dense,
         "llm": [s.llm_provider, s.llm_model], "prompt": PROMPT_VERSION,
         "emb": [s.embedding_provider, s.embedding_model],
+        "fast": fast_mode,
         "grading": s.enable_grading, "grounding": s.enable_grounding_check,
     })
 
@@ -60,8 +62,10 @@ def _serve_cached(hit: dict, question: str, conv_id: str, mode: str, source: str
 
 def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid",
         top_k: int | None = None, weight_dense: float | None = None,
-        source: str = "api", use_history: bool = True, use_cache: bool = True) -> dict:
+        source: str = "api", use_history: bool = True, use_cache: bool = True,
+        fast_mode: bool | None = None) -> dict:
     s = get_settings()
+    is_fast = s.fast_mode if fast_mode is None else bool(fast_mode)
     started = time.perf_counter()
     conv_id = repo.ensure_conversation(conversation_id, question)
     history = ([{"role": m["role"], "content": m["content"]}
@@ -71,7 +75,7 @@ def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid",
 
     cache_key = None
     if use_cache and not history and s.cache_enabled:
-        cache_key = _answer_key(question, mode, top_k, weight_dense)
+        cache_key = _answer_key(question, mode, top_k, weight_dense, is_fast)
         hit = cache.get_json("answer", cache_key)
         if hit is not None:
             return _serve_cached(hit, question, conv_id, mode, source, started)
@@ -79,6 +83,7 @@ def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid",
     graph_input = {
         "question": question, "history": history, "mode": mode,
         "top_k": top_k, "weight_dense": weight_dense,
+        "fast_mode": is_fast,
         # reset per-turn fields (the checkpointer keeps the previous turn's state)
         "attempt": 0, "dense": [], "bm25": [], "fused": [], "relevant": [],
         "answer": "", "citations": [], "grounded": None, "grounding_reason": "",

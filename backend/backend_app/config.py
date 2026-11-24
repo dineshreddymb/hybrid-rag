@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     embedding_query_prefix: str = "Represent this sentence for searching relevant passages: "
 
     # --- Reranker (Jina AI) ------------------------------------------------
-    rerank_provider: Literal["none", "jina"] = "jina"
+    rerank_provider: Literal["none", "jina"] = "none"
     rerank_model: str = "jina-reranker-v2-base-multilingual"
     jina_rerank_url: str = "https://api.jina.ai/v1/rerank"
 
@@ -53,8 +53,9 @@ class Settings(BaseSettings):
     rrf_k: int = 60
 
     # --- RAG graph ---------------------------------------------------------
-    enable_grading: bool = True
-    enable_grounding_check: bool = True
+    fast_mode: bool = True
+    enable_grading: bool = False
+    enable_grounding_check: bool = False
     max_rewrites: int = 1
     history_messages: int = 6
 

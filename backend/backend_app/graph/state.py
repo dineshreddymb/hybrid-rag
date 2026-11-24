@@ -8,6 +8,7 @@ class RAGState(TypedDict, total=False):
     mode: str                    # hybrid | dense | bm25
     top_k: int
     weight_dense: float
+    fast_mode: bool
     # working state
     query: str                   # current search query (rewritten)
     attempt: int                 # how many times rewrite_query ran this turn

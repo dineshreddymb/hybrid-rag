@@ -21,8 +21,9 @@ def grounded_badge(grounded: Any, reason: str | None = None) -> dbc.Badge:
         return dbc.Badge("grounded", color="success", class_name="me-1", title=reason or "")
     if grounded is False:
         return dbc.Badge("not grounded", color="danger", class_name="me-1", title=reason or "")
-    return dbc.Badge("grounding n/a", color="secondary", class_name="me-1",
-                     title=reason or "grounding check not run")
+    title = reason or "grounding check not run"
+    label = "⚡ fast" if "fast mode" in title.lower() else "grounding n/a"
+    return dbc.Badge(label, color="secondary", class_name="me-1", title=title)
 
 
 def render_citations(idx: int, citations: list[dict] | None) -> Any:
@@ -155,9 +156,14 @@ def layout(**_kwargs):
 
     main = dbc.Card([
         dbc.CardHeader(html.Div([
-            dbc.RadioItems(id="chat-mode", options=MODES, value="hybrid", inline=True,
-                           persistence=True, persistence_type="session"),
-            html.Span(id="chat-conv-label", className="small text-muted"),
+            html.Div([
+                dbc.RadioItems(id="chat-mode", options=MODES, value="hybrid", inline=True,
+                               persistence=True, persistence_type="session", class_name="me-3"),
+                dbc.Switch(id="chat-fast-mode", label="⚡ Fast Mode (~1.8s)", value=True,
+                           persistence=True, persistence_type="session",
+                           class_name="d-inline-block small fw-semibold text-primary"),
+            ], className="d-flex align-items-center flex-wrap"),
+            html.Span(id="chat-conv-label", className="small text-muted ms-auto"),
         ], className="d-flex justify-content-between align-items-center flex-wrap")),
         dbc.CardBody([
             html.Div(id="chat-history", style={"height": "60vh", "overflowY": "auto"},
@@ -198,10 +204,11 @@ def layout(**_kwargs):
     Input({"type": "chat-conv", "cid": ALL}, "n_clicks"),
     State("chat-input", "value"),
     State("chat-mode", "value"),
+    State("chat-fast-mode", "value"),
     State("chat-messages", "data"),
     prevent_initial_call=True,
 )
-def chat_controller(_send, _submit, _new, _conv_clicks, text, mode, messages):
+def chat_controller(_send, _submit, _new, _conv_clicks, text, mode, fast_mode, messages):
     trig = ctx.triggered_id
     if trig == "chat-new":
         return [], None, "", no_update, None
@@ -218,7 +225,9 @@ def chat_controller(_send, _submit, _new, _conv_clicks, text, mode, messages):
     if not question:
         return (no_update,) * 5
     messages = list(messages or []) + [{"role": "user", "content": question}]
+    is_fast = True if fast_mode is None else bool(fast_mode)
     return messages, no_update, "", {"q": question, "mode": mode or "hybrid",
+                                     "fast_mode": is_fast,
                                      "t": time.time()}, None
 
 
@@ -238,7 +247,8 @@ def chat_ask(pending, messages, conv_id):
         return no_update, no_update, no_update
     messages = list(messages or [])
     try:
-        r = get_client().ask(pending["q"], conversation_id=conv_id, mode=pending.get("mode"))
+        r = get_client().ask(pending["q"], conversation_id=conv_id, mode=pending.get("mode"),
+                             fast_mode=pending.get("fast_mode", True))
     except ApiError as exc:
         if exc.status == 503:
             msg = f"The RAG service is not ready: {exc.detail}"

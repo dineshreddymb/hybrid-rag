@@ -121,13 +121,16 @@ class ApiClient:
 
     # --- RAG ------------------------------------------------------------------------------
     def ask(self, question: str, conversation_id: str | None = None, mode: str = "hybrid",
-            top_k: int | None = None, weight_dense: float | None = None) -> dict:
+            top_k: int | None = None, weight_dense: float | None = None,
+            fast_mode: bool | None = None) -> dict:
         body = {"question": question, "conversation_id": conversation_id, "mode": mode,
                 "source": "ui", "use_history": True}
         if top_k is not None:
             body["top_k"] = top_k
         if weight_dense is not None:
             body["weight_dense"] = weight_dense
+        if fast_mode is not None:
+            body["fast_mode"] = fast_mode
         return self.request("POST", "/ask", json=body, timeout=ASK_TIMEOUT)
 
     def search(self, query: str, mode: str = "hybrid", top_k: int | None = None,

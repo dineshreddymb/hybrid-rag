@@ -75,13 +75,14 @@ def fuse(state: RAGState) -> RAGState:
     s = get_settings()
     weight = state.get("weight_dense")
     k_final = state.get("top_k") or s.top_k_final
-    pool_k = k_final * 2 if s.rerank_provider == "jina" and s.jina_api_key else k_final
+    fast = state.get("fast_mode", s.fast_mode)
+    pool_k = k_final * 2 if (not fast and s.rerank_provider == "jina" and s.jina_api_key) else k_final
     fused = retrieval.fuse(state.get("mode", "hybrid"), state.get("dense", []),
                            state.get("bm25", []),
                            s.hybrid_weight_dense if weight is None else weight,
                            pool_k)
     attached = retrieval.attach_text(fused)
-    if s.rerank_provider == "jina" and s.jina_api_key:
+    if not fast and s.rerank_provider == "jina" and s.jina_api_key:
         from backend_app.retrieval.reranker import rerank_documents
         final_fused = rerank_documents(state.get("query", state.get("question", "")),
                                        attached, top_n=k_final)
@@ -94,7 +95,9 @@ def grade_documents(state: RAGState) -> RAGState:
     fused = state.get("fused", [])
     if not fused:
         return {"relevant": []}
-    if not get_settings().enable_grading:
+    s = get_settings()
+    fast = state.get("fast_mode", s.fast_mode)
+    if fast or not s.enable_grading:
         return {"relevant": fused}
     user = f"Question: {state['question']}\n\nExcerpts:\n{_format_context(fused)}"
     try:
@@ -138,8 +141,10 @@ def generate_answer(state: RAGState) -> RAGState:
 
 
 def check_grounding(state: RAGState) -> RAGState:
-    if not get_settings().enable_grounding_check or state.get("not_found"):
-        return {"grounded": None, "grounding_reason": "skipped"}
+    s = get_settings()
+    fast = state.get("fast_mode", s.fast_mode)
+    if fast or not s.enable_grounding_check or state.get("not_found"):
+        return {"grounded": None, "grounding_reason": "skipped (fast mode)" if fast else "skipped"}
     user = (f"Context excerpts:\n{_format_context(state['relevant'])}\n\n"
             f"Answer to check:\n{state['answer']}")
     try:
