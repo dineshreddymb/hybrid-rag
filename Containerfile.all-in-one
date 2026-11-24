@@ -80,8 +80,9 @@ COPY backend/backend_app /srv/backend/backend_app
 COPY frontend/frontend_app /srv/frontend/frontend_app
 COPY mcp-server/mcp_server /srv/mcp-server/mcp_server
 
-# Copy supervisord config and entrypoint script
+# Copy supervisord configs and entrypoint script
 COPY supervisord.conf /etc/supervisor/supervisord.conf
+COPY supervisord.app.conf /etc/supervisor/supervisord.app.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

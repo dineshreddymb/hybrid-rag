@@ -82,17 +82,37 @@ case "$TARGET_SERVICE" in
         exec /opt/venv/bin/python -m mcp_server --transport http "$@"
         ;;
 
-    all|all-in-one|supervisord|"")
-        echo "127.0.0.1 mongodb qdrant redis backend" >> /etc/hosts 2>/dev/null || true
-        mkdir -p /data/db /data/redis /data/qdrant /data/docs /var/log/supervisor /var/run
-        chmod -R 777 /data /qdrant /var/log/supervisor /var/run 2>/dev/null || true
-        cleanup_data_disk
-        if [ ! -L /qdrant/storage ]; then
-            rm -rf /qdrant/storage 2>/dev/null || true
-            ln -s /data/qdrant /qdrant/storage
+    all|all-in-one|supervisord|app|hybrid-rag|web|"")
+        SUPERVISOR_CONF="/etc/supervisor/supervisord.conf"
+
+        # Check if external databases are configured or user requested app-only mode
+        IS_EXTERNAL_DB=false
+        if [ "$START_EMBEDDED_DBS" = "false" ] || [ "$TARGET_SERVICE" = "app" ] || [ "$TARGET_SERVICE" = "hybrid-rag" ] || [ "$TARGET_SERVICE" = "web" ]; then
+            IS_EXTERNAL_DB=true
+        elif [ -n "$MONGO_URI" ] && [[ "$MONGO_URI" != *"127.0.0.1"* ]] && [[ "$MONGO_URI" != *"localhost"* ]]; then
+            IS_EXTERNAL_DB=true
         fi
-        echo "[entrypoint] Starting all services via supervisord..."
-        exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+
+        export BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:8000}"
+        export DOCS_DIR="${DOCS_DIR:-/data/docs}"
+
+        if [ "$IS_EXTERNAL_DB" = "true" ]; then
+            echo "[entrypoint] External database / app-only mode detected. Running backend, frontend, and MCP without local databases..."
+            SUPERVISOR_CONF="/etc/supervisor/supervisord.app.conf"
+        else
+            echo "[entrypoint] All-in-one mode: starting embedded databases and application..."
+            echo "127.0.0.1 mongodb qdrant redis backend" >> /etc/hosts 2>/dev/null || true
+            mkdir -p /data/db /data/redis /data/qdrant /data/docs /var/log/supervisor /var/run
+            chmod -R 777 /data /qdrant /var/log/supervisor /var/run 2>/dev/null || true
+            cleanup_data_disk
+            if [ ! -L /qdrant/storage ]; then
+                rm -rf /qdrant/storage 2>/dev/null || true
+                ln -s /data/qdrant /qdrant/storage
+            fi
+        fi
+
+        echo "[entrypoint] Starting supervisord with $SUPERVISOR_CONF..."
+        exec /usr/bin/supervisord -c "$SUPERVISOR_CONF"
         ;;
 
     *)
