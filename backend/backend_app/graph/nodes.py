@@ -39,9 +39,12 @@ def rewrite_query(state: RAGState) -> RAGState:
     attempt = state.get("attempt", 0)
     question = state["question"]
     history = state.get("history") or []
+    s = get_settings()
+    fast = state.get("fast_mode", s.fast_mode)
 
-    if attempt == 0 and not history:
-        return {"query": question, "attempt": 1}
+    # In fast mode, skip the extra LLM rewrite step completely to keep response under 2s!
+    if fast or (attempt == 0 and not history):
+        return {"query": question, "attempt": attempt + 1}
 
     if attempt == 0:
         system = prompts.REWRITE_WITH_HISTORY

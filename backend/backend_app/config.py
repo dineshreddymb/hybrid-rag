@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 120
     top_k_dense: int = 10
     top_k_bm25: int = 10
-    top_k_final: int = 5
+    top_k_final: int = 3
     hybrid_weight_dense: float = Field(0.5, ge=0.0, le=1.0)
     rrf_k: int = 60
 
