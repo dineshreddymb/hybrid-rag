@@ -224,6 +224,9 @@ def chat_controller(_send, _submit, _new, _conv_clicks, text, mode, fast_mode, m
     question = (text or "").strip()
     if not question:
         return (no_update,) * 5
+    # Prevent rapid double-clicks or duplicate submissions while request is still pending
+    if messages and messages[-1].get("role") == "user" and messages[-1].get("content") == question:
+        return (no_update,) * 5
     messages = list(messages or []) + [{"role": "user", "content": question}]
     is_fast = True if fast_mode is None else bool(fast_mode)
     return messages, no_update, "", {"q": question, "mode": mode or "hybrid",

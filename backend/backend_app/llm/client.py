@@ -56,8 +56,8 @@ def get_chat_model() -> BaseChatModel:
         "model": s.llm_model,
         "google_api_key": s.google_api_key,
         "temperature": s.llm_temperature,
-        "max_retries": 3,
-        "timeout": 60,
+        "max_retries": 2,
+        "timeout": 30,
     }
     if s.llm_thinking_budget >= 0:
         kwargs["thinking_budget"] = s.llm_thinking_budget
