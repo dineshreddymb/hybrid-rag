@@ -24,6 +24,7 @@ def ensure_indexes() -> None:
     db = get_db()
     try:
         get_client().admin.command({"setParameter": 1, "indexBuildMinAvailableDiskSpaceMB": 0})
+        get_client().admin.command({"setParameter": 1, "diagnosticDataCollectionEnabled": False})
     except Exception:
         pass
     db.documents.create_index([("source", ASCENDING)], unique=True)

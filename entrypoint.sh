@@ -1,6 +1,17 @@
 #!/bin/bash
 set -e
 
+# Auto-cleanup orphaned temp files and FTDC diagnostic data to preserve space on 500MB volumes
+cleanup_data_disk() {
+    echo "[entrypoint] Checking and cleaning up temporary files to preserve disk space..."
+    rm -rf /data/db/diagnostic.data 2>/dev/null || true
+    rm -f /data/db/mongod.lock 2>/dev/null || true
+    find /data -name ".atomicwrite*" -delete 2>/dev/null || true
+    find /data -name "*.tmp" -delete 2>/dev/null || true
+    echo "[entrypoint] Available disk space on /data:"
+    df -h /data 2>/dev/null || true
+}
+
 # Support selecting service via CLI arg or SERVICE environment variable
 TARGET_SERVICE="${1:-$SERVICE}"
 
@@ -9,16 +20,18 @@ case "$TARGET_SERVICE" in
         if [ "$1" = "$TARGET_SERVICE" ]; then shift; fi
         mkdir -p /data/db /var/log/mongodb
         chmod -R 777 /data/db /var/log/mongodb 2>/dev/null || true
+        cleanup_data_disk
         export LD_PRELOAD="/usr/local/lib/libfake_uname.so"
         export GLIBC_TUNABLES="glibc.pthread.rseq=0"
-        echo "[entrypoint] Starting MongoDB with fake_uname and indexBuildMinAvailableDiskSpaceMB=0..."
-        exec /usr/bin/mongod --dbpath /data/db --bind_ip_all --setParameter indexBuildMinAvailableDiskSpaceMB=0 "$@"
+        echo "[entrypoint] Starting MongoDB with fake_uname, low-disk & low-memory tuning..."
+        exec /usr/bin/mongod --dbpath /data/db --bind_ip_all --setParameter indexBuildMinAvailableDiskSpaceMB=0 --setParameter diagnosticDataCollectionEnabled=false --wiredTigerEngineConfigString="cache_size=128M" "$@"
         ;;
 
     redis|redis-server)
         if [ "$1" = "$TARGET_SERVICE" ]; then shift; fi
         mkdir -p /data/redis
         chmod -R 777 /data/redis 2>/dev/null || true
+        cleanup_data_disk
         echo "[entrypoint] Starting Redis on 0.0.0.0:6379..."
         exec /usr/bin/redis-server --bind 0.0.0.0 --port 6379 --protected-mode no --dir /data/redis "$@"
         ;;
@@ -27,6 +40,7 @@ case "$TARGET_SERVICE" in
         if [ "$1" = "$TARGET_SERVICE" ]; then shift; fi
         mkdir -p /data/qdrant /qdrant/storage
         chmod -R 777 /data/qdrant /qdrant 2>/dev/null || true
+        cleanup_data_disk
         if [ ! -L /qdrant/storage ]; then
             rm -rf /qdrant/storage 2>/dev/null || true
             ln -s /data/qdrant /qdrant/storage
@@ -72,6 +86,7 @@ case "$TARGET_SERVICE" in
         echo "127.0.0.1 mongodb qdrant redis backend" >> /etc/hosts 2>/dev/null || true
         mkdir -p /data/db /data/redis /data/qdrant /data/docs /var/log/supervisor /var/run
         chmod -R 777 /data /qdrant /var/log/supervisor /var/run 2>/dev/null || true
+        cleanup_data_disk
         if [ ! -L /qdrant/storage ]; then
             rm -rf /qdrant/storage 2>/dev/null || true
             ln -s /data/qdrant /qdrant/storage
