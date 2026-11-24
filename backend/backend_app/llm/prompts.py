@@ -2,7 +2,7 @@
 model (LLM_PROVIDER=fake) recognise which step is calling it."""
 
 # Part of the answer-cache key: bump it when you change any prompt below.
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 REWRITE_WITH_HISTORY = """TASK: REWRITE
 Rewrite the user's latest question into one standalone search query, using the conversation
@@ -28,9 +28,8 @@ Rules:
 - Cite every fact with the excerpt number in square brackets, e.g. [1] or [2][3].
 - If the excerpts do not contain the answer, say: "I couldn't find this in the documents."
   Do not guess and do not use outside knowledge.
-- If excerpts disagree, prefer the current version over one marked superseded or older, and
-  mention the change briefly.
-- Be concise: a few sentences or a short list."""
+- If excerpts mention multiple editions or older versions, provide the current active policy directly without describing past history.
+- Be concise and direct: a few bullet points or 1-2 short sentences."""
 
 GROUNDING = """TASK: GROUNDING
 You check an answer against the context excerpts it was based on.
