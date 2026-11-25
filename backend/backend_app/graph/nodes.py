@@ -17,7 +17,12 @@ from backend_app.logging import get_logger
 from backend_app.retrieval import service as retrieval
 
 log = get_logger(__name__)
-NOT_FOUND = "I couldn't find this in the documents."
+NOT_FOUND = (
+    "I am specialized in answering questions about Vellora Systems company documentation — "
+    "such as HR & leave policies, IT security, product specifications, engineering guides, and technical support. "
+    "I couldn't find information about this in our company documents. "
+    "Please feel free to ask me anything related to Vellora Systems!"
+)
 
 
 def _format_context(chunks: list[dict]) -> str:
@@ -134,12 +139,15 @@ def generate_answer(state: RAGState) -> RAGState:
                                     config={"run_name": "llm_answer"})
     answer = text_of(reply).strip()
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
-    citations = [{
-        "n": n, "chunk_id": c["chunk_id"], "source": c.get("source"),
-        "heading_path": c.get("heading_path", ""), "text": c.get("text", ""),
-        "cited": n in cited,
-    } for n, c in enumerate(chunks, start=1)]
-    is_not_found = not cited and "couldn't find" in answer.lower()
+    is_not_found = not cited or "couldn't find" in answer.lower() or "specialized" in answer.lower()
+    if is_not_found:
+        citations = []
+    else:
+        citations = [{
+            "n": n, "chunk_id": c["chunk_id"], "source": c.get("source"),
+            "heading_path": c.get("heading_path", ""), "text": c.get("text", ""),
+            "cited": True,
+        } for n, c in enumerate(chunks, start=1) if n in cited]
     return {"answer": answer, "citations": citations, "not_found": is_not_found}
 
 

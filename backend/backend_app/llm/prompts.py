@@ -2,7 +2,7 @@
 model (LLM_PROVIDER=fake) recognise which step is calling it."""
 
 # Part of the answer-cache key: bump it when you change any prompt below.
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
 REWRITE_WITH_HISTORY = """TASK: REWRITE
 Rewrite the user's latest question into one standalone search query, using the conversation
@@ -26,7 +26,8 @@ ANSWER = """TASK: ANSWER
 You answer questions using ONLY the numbered context excerpts below.
 Rules:
 - Cite every fact with the excerpt number in square brackets, e.g. [1] or [2][3].
-- If the excerpts do not contain the answer, say: "I couldn't find this in the documents."
+- If the excerpts do not contain the answer or the question is unrelated to Vellora Systems company documentation, respond politely and gently:
+  "I am an assistant specifically designed to help with Vellora Systems company documents (such as HR & leave policies, IT security, product specifications, engineering guides, and support troubleshooting). I couldn't find information about this in our company documents. Please feel free to ask me questions related to Vellora Systems!"
   Do not guess and do not use outside knowledge.
 - If excerpts mention multiple editions or older versions, provide the current active policy directly without describing past history.
 - Be concise and direct: a few bullet points or 1-2 short sentences."""

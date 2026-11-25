@@ -209,9 +209,11 @@ def ask_stream(question: str, conversation_id: str | None = None, mode: str = "h
 
     # Detect cited bracket citations [1], [2]
     cited_nums = {int(n) for n in re.findall(r"\[(\d+)\]", answer_str)}
-    for c in citations:
-        c["cited"] = c["n"] in cited_nums
-    is_not_found = not cited_nums and "couldn't find" in answer_str.lower()
+    is_not_found = not cited_nums or "couldn't find" in answer_str.lower() or "vellora systems" in answer_str.lower()
+    if is_not_found:
+        citations = []
+    else:
+        citations = [c for c in citations if c["n"] in cited_nums]
 
     # Save to MongoDB & cache in Redis
     result = {

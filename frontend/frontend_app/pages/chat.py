@@ -61,8 +61,7 @@ def render_assistant(idx: int, m: dict) -> Any:
         badges.append(dbc.Badge("cached", color="secondary", class_name="me-1",
                                 title="served from the Redis answer cache"))
     if m.get("not_found"):
-        badges.append(dbc.Badge("not found in documents", color="warning", text_color="dark",
-                                class_name="me-1"))
+        badges.append(dbc.Badge("out of scope", color="secondary", class_name="me-1"))
     meta = []
     if m.get("rewritten_query"):
         meta.append(html.Span([html.I(className="bi bi-arrow-repeat me-1"),
