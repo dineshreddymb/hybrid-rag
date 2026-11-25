@@ -162,7 +162,7 @@ def test_server_routes_and_no_duplicate_outputs():
 def test_chat_send_then_ask(fake_api):
     msgs, _cid, text, pending, alert = with_trigger(
         "chat-send.n_clicks", 1, chat.chat_controller, 1, 0, 0, [], " what is alpha ",
-        "hybrid", [])
+        "hybrid", True, [])
     assert msgs == [{"role": "user", "content": "what is alpha"}]
     assert text == "" and pending["q"] == "what is alpha" and alert is None
 
@@ -185,12 +185,12 @@ def test_chat_ask_503_shows_message(fake_api):
 
 def test_chat_load_conversation_and_new(fake_api):
     out = with_trigger('{"cid":"conv1","type":"chat-conv"}.n_clicks', 1, chat.chat_controller,
-                       0, 0, 0, [1], "", "hybrid", [])
+                       0, 0, 0, [1], "", "hybrid", True, [])
     msgs, cid = out[0], out[1]
     assert cid == "conv1" and [m["role"] for m in msgs] == ["user", "assistant"]
     assert "not stored" in dumps(chat.render_messages(msgs))
     new = with_trigger("chat-new.n_clicks", 1, chat.chat_controller, 0, 0, 1, [], "", "hybrid",
-                       msgs)
+                       True, msgs)
     assert new[0] == [] and new[1] is None
     convs, label = chat.chat_conversations(0, "conv1")
     assert "Alpha?" in dumps(convs) and "conv1" in label

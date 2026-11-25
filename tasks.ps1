@@ -14,6 +14,7 @@ Shortcuts for the hybrid RAG stack.  Usage:  .\tasks.ps1 <task> [args]
   ingest [force]      re-scan data/docs   (force = re-embed every chunk)
   test                unit tests (no containers needed)
   itest               integration tests against the running stack
+  agentest [args]     run agentest-ai evals (offline trace testing, e.g. .\tasks.ps1 agentest demo)
   eval [args]         run the RAGAS job, e.g.  .\tasks.ps1 eval --mode all --no-ragas
   qdrant-backup       write a Qdrant snapshot to data\qdrant_snapshots
   qdrant-restore [snapshot-file-name]   restore a snapshot (no name = list them)
@@ -29,6 +30,12 @@ param(
 )
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+
+# Automatically synchronize APP_VERSION with the current Git tag
+try {
+    $GitTag = (git describe --tags --always 2>$null)
+    if ($GitTag) { $env:APP_VERSION = $GitTag.Trim() }
+} catch {}
 
 $Py = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $Compose = Join-Path $PSScriptRoot ".venv\Scripts\podman-compose.exe"
@@ -106,6 +113,12 @@ switch ($Task) {
         $mcpPy = "mcp-server\.venv\Scripts\python.exe"
         if (Test-Path $mcpPy) { & $mcpPy -m pytest tests/integration -q -p no:cacheprovider }
         else { & $Py -m pytest tests/integration -q -p no:cacheprovider }
+    }
+    "agentest"  {
+        $Agentest = Join-Path $PSScriptRoot ".venv\Scripts\agentest.exe"
+        if (-not (Test-Path $Agentest)) { throw "agentest-ai not installed in .venv. Run: .\.venv\Scripts\python -m pip install agentest-ai" }
+        if (-not $Rest -or $Rest.Count -eq 0) { & $Agentest demo }
+        else { & $Agentest @Rest }
     }
     "eval"      { Need-Venv; & $Compose --profile eval run --rm eval @Rest }
     "qdrant-backup" { Invoke-RestMethod -Method Post "$Api/admin/qdrant/snapshot"; Get-ChildItem data\qdrant_snapshots -Recurse -File | Select-Object FullName, Length }

@@ -185,7 +185,7 @@ def test_answer_key_depends_on_everything_that_changes_the_answer(ask_env, monke
     graph, _, _ = ask_env
     ask_service.ask("q")
     ask_service.ask("q", mode="bm25")
-    ask_service.ask("q", top_k=3)
+    ask_service.ask("q", top_k=7)
     monkeypatch.setattr(get_settings(), "llm_provider", "gemini")   # e.g. fake -> real model
     ask_service.ask("q")
     assert graph.calls == 4

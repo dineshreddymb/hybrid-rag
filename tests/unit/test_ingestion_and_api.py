@@ -83,7 +83,7 @@ def test_ask_and_search_accept_use_cache_flag(client, monkeypatch):
     c, _ = client
     seen = {}
     monkeypatch.setattr("backend_app.main.rag_ask",
-                        lambda *a: seen.setdefault("ask", a) and {"answer": "ok"})
+                        lambda *a, **kw: seen.setdefault("ask", a) and {"answer": "ok"})
     r = c.post("/ask", json={"question": "q", "use_cache": False})
     assert r.status_code == 200 and seen["ask"][-1] is False
 

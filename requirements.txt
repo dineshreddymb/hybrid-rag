@@ -39,3 +39,4 @@ langfuse==5.2.0
 # Development & Testing
 pytest==9.2.0
 fakeredis==2.40.0
+agentest-ai>=3.6.0

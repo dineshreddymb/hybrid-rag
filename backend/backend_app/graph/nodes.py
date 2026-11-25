@@ -105,7 +105,8 @@ def grade_documents(state: RAGState) -> RAGState:
         return {"relevant": []}
     s = get_settings()
     fast = state.get("fast_mode", s.fast_mode)
-    if fast or not s.enable_grading:
+    enable_grading = state.get("enable_grading", s.enable_grading)
+    if fast or not enable_grading:
         return {"relevant": fused}
     user = f"Question: {state['question']}\n\nExcerpts:\n{_format_context(fused)}"
     try:
@@ -113,9 +114,9 @@ def grade_documents(state: RAGState) -> RAGState:
                                         config={"run_name": "llm_grade"})
         keep = {int(n) for n in parse_json(text_of(reply)).get("relevant", [])}
         relevant = [c for n, c in enumerate(fused, start=1) if n in keep]
-    except Exception as exc:  # noqa: BLE001 — if grading breaks, keep everything
+    except Exception as exc:  # noqa: BLE001 — on failure, do not leak unvetted chunks
         log.warning("grading_failed", error=str(exc))
-        relevant = fused
+        relevant = []
     return {"relevant": relevant}
 
 
@@ -133,13 +134,27 @@ def not_found(state: RAGState) -> RAGState:
 
 
 def generate_answer(state: RAGState) -> RAGState:
-    chunks = state["relevant"]
+    chunks = state.get("relevant") or []
+    if not chunks:
+        return not_found(state)
     user = f"Context excerpts:\n{_format_context(chunks)}\n\nQuestion: {state['question']}"
     reply = get_chat_model().invoke([SystemMessage(prompts.ANSWER), HumanMessage(user)],
                                     config={"run_name": "llm_answer"})
     answer = text_of(reply).strip()
-    cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
-    is_not_found = not cited or "couldn't find" in answer.lower() or "specialized" in answer.lower()
+    
+    # Extract citations and filter out phantom/hallucinated citation numbers
+    raw_cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
+    valid_cited = {n for n in raw_cited if 1 <= n <= len(chunks)}
+    
+    # Strip any phantom citations from the answer text (e.g. [3] when only 2 chunks exist)
+    if raw_cited != valid_cited:
+        phantom_cited = raw_cited - valid_cited
+        log.warning("phantom_citations_stripped", phantom=list(phantom_cited), max_valid=len(chunks))
+        for p in phantom_cited:
+            answer = re.sub(rf"\[{p}\]", "", answer)
+        answer = re.sub(r" +\[", " [", answer).strip()
+
+    is_not_found = not valid_cited or "couldn't find" in answer.lower() or "specialized" in answer.lower()
     if is_not_found:
         citations = []
     else:
@@ -147,14 +162,15 @@ def generate_answer(state: RAGState) -> RAGState:
             "n": n, "chunk_id": c["chunk_id"], "source": c.get("source"),
             "heading_path": c.get("heading_path", ""), "text": c.get("text", ""),
             "cited": True,
-        } for n, c in enumerate(chunks, start=1) if n in cited]
+        } for n, c in enumerate(chunks, start=1) if n in valid_cited]
     return {"answer": answer, "citations": citations, "not_found": is_not_found}
 
 
 def check_grounding(state: RAGState) -> RAGState:
     s = get_settings()
-    fast = state.get("fast_mode", s.fast_mode)
-    if fast or not s.enable_grounding_check or state.get("not_found"):
+    fast = state.get("fast_mode")
+    enable_grounding = state.get("enable_grounding_check", s.enable_grounding_check)
+    if state.get("not_found") or not enable_grounding or (fast is True):
         return {"grounded": None, "grounding_reason": "skipped (fast mode)" if fast else "skipped"}
     user = (f"Context excerpts:\n{_format_context(state['relevant'])}\n\n"
             f"Answer to check:\n{state['answer']}")
