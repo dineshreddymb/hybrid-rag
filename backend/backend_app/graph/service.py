@@ -19,6 +19,7 @@ from backend_app.db import repositories as repo
 from backend_app.graph.builder import get_graph
 from backend_app.graph.nodes import _format_context
 from backend_app.llm import prompts
+from backend_app.llm.prompts import PROMPT_VERSION
 from backend_app.llm.client import get_chat_model, text_of
 from backend_app.logging import get_logger
 from backend_app.retrieval import service as retrieval
