@@ -30,14 +30,34 @@ log = get_logger(__name__)
 # Fields that belong to one particular request and are replaced when an answer is served from cache.
 _PER_REQUEST = ("conversation_id", "trace_id", "trace_url", "latency_ms", "cached")
 
+GREETINGS = {
+    "hi", "hello", "hey", "ji", "namaste", "hola",
+    "thanks", "thank you", "ok", "okay", "good morning",
+    "good afternoon", "good evening", "how are you", "who are you",
+}
+GREETING_RESPONSE = (
+    "Hello! I am your Vellora Systems assistant. "
+    "I'm here to help you with company policies, IT security, engineering guides, and product specifications. "
+    "How can I assist you today?"
+)
+
+
+def _normalize_query(question: str) -> str:
+    """Normalize question for cache keys & chitchat: strip punctuation, lowercase, collapse whitespace."""
+    q = question.strip().lower()
+    q = re.sub(r"[?!.,;:\s]+$", "", q)
+    q = re.sub(r"\s+", " ", q)
+    return q
+
 
 def _answer_key(question: str, mode: str, top_k: int, weight_dense: float | None,
                 fast_mode: bool = True) -> str:
     s = get_settings()
+    norm_q = _normalize_query(question)
     # Anything that can change the answer is part of the key (provider too, so an answer made by
     # the offline fake model is never served once a real model is configured).
     return cache.versioned_key({
-        "q": question.strip(), "mode": mode, "top_k": top_k, "w": weight_dense,
+        "q": norm_q, "mode": mode, "top_k": top_k, "w": weight_dense,
         "llm": [s.llm_provider, s.llm_model], "prompt": PROMPT_VERSION,
         "emb": [s.embedding_provider, s.embedding_model],
         "fast": fast_mode,
@@ -69,6 +89,32 @@ def _serve_cached(hit: dict, question: str, conv_id: str, mode: str, source: str
     return result
 
 
+def _serve_greeting(question: str, conv_id: str, mode: str, source: str, started: float) -> dict:
+    with trace_request("ask", input={"question": question, "mode": mode}, session_id=conv_id,
+                       tags=[f"source:{source}", f"mode:{mode}", "greeting:instant"]) as t:
+        t.update(output={"answer": GREETING_RESPONSE, "cached": False})
+        trace_id = t.trace_id
+    result = {
+        "answer": GREETING_RESPONSE,
+        "citations": [],
+        "conversation_id": conv_id,
+        "rewritten_query": question,
+        "not_found": False,
+        "grounded": None,
+        "grounding_reason": "greeting",
+        "mode": mode,
+        "retrieved": [],
+        "contexts": [],
+        "latency_ms": round((time.perf_counter() - started) * 1000),
+        "trace_id": trace_id,
+        "trace_url": trace_url(trace_id),
+        "cached": False,
+    }
+    _save_messages(conv_id, question, result, trace_id, mode)
+    log.info("ask_greeting", conversation_id=conv_id, mode=mode, latency_ms=result["latency_ms"])
+    return result
+
+
 def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid",
         top_k: int | None = None, weight_dense: float | None = None,
         source: str = "api", use_history: bool = True, use_cache: bool = True,
@@ -77,6 +123,12 @@ def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid",
     is_fast = s.fast_mode if fast_mode is None else bool(fast_mode)
     started = time.perf_counter()
     conv_id = repo.ensure_conversation(conversation_id, question)
+
+    norm_q = _normalize_query(question)
+    # Instant sub-50ms short-circuit for conversational greetings & chitchat
+    if norm_q in GREETINGS:
+        return _serve_greeting(question, conv_id, mode, source, started)
+
     history = ([{"role": m["role"], "content": m["content"]}
                 for m in repo.recent_messages(conv_id, s.history_messages)]
                if use_history else [])
@@ -84,7 +136,7 @@ def ask(question: str, conversation_id: str | None = None, mode: str = "hybrid",
 
     cache_key = None
     if use_cache and not history and s.cache_enabled:
-        cache_key = _answer_key(question, mode, top_k, weight_dense, is_fast)
+        cache_key = _answer_key(norm_q, mode, top_k, weight_dense, is_fast)
         hit = cache.get_json("answer", cache_key)
         if hit is not None:
             return _serve_cached(hit, question, conv_id, mode, source, started)
@@ -159,10 +211,18 @@ def ask_stream(question: str, conversation_id: str | None = None, mode: str = "h
     conv_id = repo.ensure_conversation(conversation_id, question)
     top_k = top_k or s.top_k_final
 
+    norm_q = _normalize_query(question)
+    # Instant sub-50ms short-circuit for conversational greetings
+    if norm_q in GREETINGS:
+        yield f"data: {json.dumps({'event': 'start', 'conversation_id': conv_id, 'citations': []})}\n\n"
+        yield f"data: {json.dumps({'event': 'token', 'token': GREETING_RESPONSE})}\n\n"
+        yield f"data: {json.dumps({'event': 'done', 'answer': GREETING_RESPONSE, 'citations': [], 'cached': False, 'latency_ms': 10, 'conversation_id': conv_id})}\n\n"
+        return
+
     # Check cache first for instant repeat answers
     cache_key = None
     if use_cache and s.cache_enabled:
-        cache_key = _answer_key(question, mode, top_k, weight_dense, is_fast)
+        cache_key = _answer_key(norm_q, mode, top_k, weight_dense, is_fast)
         hit = cache.get_json("answer", cache_key)
         if hit is not None:
             ans = hit.get("answer", "")

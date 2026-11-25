@@ -136,3 +136,45 @@ def test_agentest_verifies_rag_state_invariants():
         if c.get("status") == "fail"
     ]
     assert not failed, f"Agent trajectory failed checks: {failed}"
+
+
+def test_normalize_query_matches_variations():
+    """Verify that formatting variations (spaces, casing, trailing punctuation) produce identical cache keys."""
+    from backend_app.graph.service import _normalize_query, _answer_key
+
+    q1 = "who is the founder of this company ."
+    q2 = "Who is the founder of this company?"
+    q3 = "  who is the founder of this company   "
+    q4 = "who is the founder of this company"
+
+    norm1 = _normalize_query(q1)
+    norm2 = _normalize_query(q2)
+    norm3 = _normalize_query(q3)
+    norm4 = _normalize_query(q4)
+
+    assert norm1 == norm2 == norm3 == norm4 == "who is the founder of this company"
+    
+    # Cache keys must be completely identical
+    k1 = _answer_key(q1, "hybrid", 5, 0.5)
+    k2 = _answer_key(q2, "hybrid", 5, 0.5)
+    assert k1 == k2, "Cache key mismatch for punctuation/casing variations!"
+
+
+def test_greetings_short_circuit_instantly(monkeypatch):
+    """Verify that greetings ('ji', 'hi', 'hello') return an instant response without invoking retrieval or graph."""
+    from backend_app.graph.service import ask
+
+    # Stub repo to run completely offline without MongoDB
+    monkeypatch.setattr("backend_app.graph.service.repo.ensure_conversation", lambda cid, q: "conv-1")
+    monkeypatch.setattr("backend_app.graph.service.repo.add_message", lambda *a, **k: None)
+
+    # If retrieval or graph is invoked, fail the test
+    monkeypatch.setattr(retrieval, "dense_search", lambda q, k: pytest.fail("retrieval should not be called for greetings!"))
+    
+    for word in ["ji", "hi", "Hello!", "hey  "]:
+        res = ask(word, source="test", use_history=False, use_cache=False)
+        assert "Vellora Systems" in res["answer"]
+        assert res["grounding_reason"] == "greeting"
+        assert res["citations"] == []
+        assert res["not_found"] is False
+

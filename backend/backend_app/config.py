@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # --- LLM -------------------------------------------------------------
     llm_provider: Literal["gemini", "fake"] = "gemini"
     google_api_key: str = ""
-    llm_model: str = "gemini-3.1-flash-lite"
+    llm_model: str = "gemini-3.5-flash-lite"
     llm_temperature: float = 0.0
     # Gemini 2.5 Flash "thinking" tokens: 0 = off. -1 = don't send the parameter
     # at all (default, required for gemini-2.0-flash and gemini-1.5 which reject thinking_budget).
